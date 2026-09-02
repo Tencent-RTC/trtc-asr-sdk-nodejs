@@ -4,13 +4,21 @@
 
 export { Credential } from "./credential";
 export { ASRError, ErrorCode } from "./errors";
-export { SignatureParams } from "./signature";
+export {
+  SignatureParams,
+  SpeakerRole,
+  SPEAKER_DIARIZATION_OFF,
+  SPEAKER_DIARIZATION_CLUSTER,
+  SPEAKER_DIARIZATION_VOICEPRINT,
+} from "./signature";
 export { genUserSig } from "./usersig";
+export { SDK_VERSION, SDK_LANGUAGE, SDK_TYPE, sdkPlatform } from "./sdkinfo";
 export {
   SpeechRecognizer,
   SpeechRecognitionListener,
   SpeechRecognitionResponse,
   RecognitionResult,
+  SpeakerSegment,
   WordInfo,
   ENDPOINT,
 } from "./speech-recognizer";

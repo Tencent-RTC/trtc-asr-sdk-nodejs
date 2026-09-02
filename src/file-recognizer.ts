@@ -15,6 +15,9 @@
 import { v4 as uuidv4 } from "uuid";
 import { Credential } from "./credential";
 import { ASRError, ErrorCode } from "./errors";
+import { validateSpeakerDiarization, validateVadTuning } from "./params";
+import { sdkReportQuery } from "./sdkinfo";
+import { SpeakerRole } from "./signature";
 import { genUserSig } from "./usersig";
 
 export const FILE_ENDPOINT = "https://asr.cloud-rtc.com";
@@ -61,6 +64,45 @@ export interface CreateRecTaskRequest {
   hotwordId?: string;
   /** Temporary inline hotword list. */
   hotwordList?: string;
+  /** Custom language model ID. */
+  customizationId?: string;
+  /** Replacement word table ID used for forced text replacement. */
+  replaceTextId?: string;
+  /** Force the audio language on engines that support it (e.g. bigmodel). */
+  language?: string;
+
+  /**
+   * Speaker diarization (说话人分离): 0=off (default), 1=anonymous
+   * clustering, 3=voiceprint role authentication.
+   *
+   * When enabled, each sentence in resultDetail carries speakerId; with
+   * mode 3 and speakerRoles / voiceprintIds supplied, speakerRoleName is
+   * filled too.
+   *
+   * For stereo recordings (channelNum=2) do NOT enable this: the server
+   * auto-fills channelId (1=left, 2=right) per sentence instead.
+   */
+  speakerDiarization?: number;
+  /** Expected speaker count hint; 0=auto detection (default). */
+  speakerNumber?: number;
+  /** Temporary voiceprint enrollment roles; only speakerDiarization=3. */
+  speakerRoles?: SpeakerRole[];
+  /** Previously enrolled voiceprint IDs; only speakerDiarization=3. */
+  voiceprintIds?: string[];
+  /** Silence detection threshold in milliseconds. */
+  vadSilenceMs?: number;
+  /**
+   * VAD profile: 0=high recall (default), 1=far-field noise filtering.
+   * undefined means "not configured", so an explicit 0 can be distinguished
+   * from the server default.
+   */
+  vadLevel?: number;
+  /**
+   * VAD noise fine-tuning, range [0, 4]. When set it overrides the profile
+   * selected by vadLevel. undefined means "not configured" (0 is a valid,
+   * meaningful threshold).
+   */
+  noiseThreshold?: number;
 }
 
 /** Word-level timing within a sentence. */
@@ -81,6 +123,25 @@ export interface SentenceDetail {
   words: SentenceWords[];
   speechSpeed: number;
   silenceTime: number;
+
+  /** Speaker number of this sentence, returned when diarization is enabled. */
+  speakerId?: number;
+
+  /**
+   * Enrolled role name of this sentence, returned when
+   * speakerDiarization=3 matched one of the requested speakerRoles /
+   * voiceprintIds. Empty when no enrolled speaker matched.
+   */
+  speakerRoleName?: string;
+
+  /**
+   * Audio channel of this sentence for stereo recordings (channelNum=2):
+   * 1=left, 2=right. Prefer it over speakerId in that case.
+   */
+  channelId?: number;
+
+  /** Detected language of this sentence, when the engine reports one. */
+  language?: string;
 }
 
 /** Task status and result. */
@@ -88,6 +149,8 @@ export interface TaskStatus {
   recTaskId: string;
   status: number;
   statusStr: string;
+  /** Processing progress (0-100). */
+  progress: number;
   result: string;
   errorMsg: string;
   resultDetail: SentenceDetail[];
@@ -306,7 +369,8 @@ export class FileRecognizer {
       `?AppId=${this.credential.appId}` +
       `&Secretid=${this.credential.appId}` +
       `&RequestId=${requestId}` +
-      `&Timestamp=${timestamp}`;
+      `&Timestamp=${timestamp}` +
+      `&${sdkReportQuery()}`;
 
     const headers: Record<string, string> = {
       "Content-Type": "application/json; charset=utf-8",
@@ -380,6 +444,33 @@ export class FileRecognizer {
     if (req.convertNumMode) body.ConvertNumMode = req.convertNumMode;
     if (req.hotwordId) body.HotwordId = req.hotwordId;
     if (req.hotwordList) body.HotwordList = req.hotwordList;
+    if (req.customizationId) body.CustomizationId = req.customizationId;
+    if (req.replaceTextId) body.ReplaceTextId = req.replaceTextId;
+    if (req.language) body.Language = req.language;
+    if (req.speakerDiarization) {
+      body.SpeakerDiarization = req.speakerDiarization;
+      if (req.speakerNumber) body.SpeakerNumber = req.speakerNumber;
+    }
+    // SpeakerRoles / VoiceprintIds only apply to the voiceprint role
+    // authentication mode.
+    if (req.speakerDiarization === 3) {
+      if (req.speakerRoles && req.speakerRoles.length > 0) {
+        body.SpeakerRoles = req.speakerRoles.map((r) => ({
+          RoleName: r.roleName,
+          AudioUrl: r.audioUrl,
+        }));
+      }
+      if (req.voiceprintIds && req.voiceprintIds.length > 0) {
+        body.VoiceprintIds = [...req.voiceprintIds];
+      }
+    }
+    if (req.vadSilenceMs) body.VadSilenceMs = req.vadSilenceMs;
+    // Explicit zeros must survive: undefined means "not configured" while 0
+    // is a valid, meaningful value for both.
+    if (req.vadLevel !== undefined) body.VadLevel = req.vadLevel;
+    if (req.noiseThreshold !== undefined) {
+      body.NoiseThreshold = req.noiseThreshold;
+    }
 
     return body;
   }
@@ -400,6 +491,10 @@ export class FileRecognizer {
         })),
         speechSpeed: sd.SpeechSpeed || 0,
         silenceTime: sd.SilenceTime || 0,
+        speakerId: sd.SpeakerId,
+        speakerRoleName: sd.SpeakerRoleName,
+        channelId: sd.ChannelId,
+        language: sd.Language,
       }),
     );
 
@@ -407,6 +502,7 @@ export class FileRecognizer {
       recTaskId: data.RecTaskId || "",
       status: data.Status || 0,
       statusStr: data.StatusStr || "",
+      progress: data.Progress || 0,
       result: data.Result || "",
       errorMsg: data.ErrorMsg || "",
       resultDetail,
@@ -442,5 +538,12 @@ export class FileRecognizer {
         "data is required when sourceType=1",
       );
     }
+    validateSpeakerDiarization(
+      req.speakerDiarization ?? 0,
+      req.speakerNumber ?? 0,
+      req.speakerRoles ?? [],
+      req.voiceprintIds ?? [],
+    );
+    validateVadTuning(req.vadLevel ?? null, req.noiseThreshold ?? null);
   }
 }

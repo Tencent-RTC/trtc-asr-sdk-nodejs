@@ -10,6 +10,7 @@
 import { v4 as uuidv4 } from "uuid";
 import { Credential } from "./credential";
 import { ASRError, ErrorCode } from "./errors";
+import { sdkReportQuery } from "./sdkinfo";
 import { genUserSig } from "./usersig";
 
 export const SENTENCE_ENDPOINT = "https://asr.cloud-rtc.com";
@@ -47,8 +48,12 @@ export interface SentenceRecognitionRequest {
   hotwordId?: string;
   /** Temporary inline hotword list. */
   hotwordList?: string;
+  /** Custom language model ID. */
+  customizationId?: string;
   /** PCM input sample rate override (e.g., 8000). */
   inputSampleRate?: number;
+  /** Force the audio language on engines that support it (e.g. bigmodel). */
+  language?: string;
 }
 
 /** Word-level timing information. */
@@ -122,7 +127,8 @@ export class SentenceRecognizer {
       `?AppId=${this.credential.appId}` +
       `&Secretid=${this.credential.appId}` +
       `&RequestId=${requestId}` +
-      `&Timestamp=${timestamp}`;
+      `&Timestamp=${timestamp}` +
+      `&${sdkReportQuery()}`;
 
     const headers: Record<string, string> = {
       "Content-Type": "application/json; charset=utf-8",
@@ -281,7 +287,9 @@ export class SentenceRecognizer {
     }
     if (req.hotwordId) body.HotwordId = req.hotwordId;
     if (req.hotwordList) body.HotwordList = req.hotwordList;
+    if (req.customizationId) body.CustomizationId = req.customizationId;
     if (req.inputSampleRate) body.InputSampleRate = req.inputSampleRate;
+    if (req.language) body.Language = req.language;
 
     return body;
   }
