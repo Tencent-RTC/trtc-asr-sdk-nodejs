@@ -132,14 +132,17 @@ export interface SpeechRecognitionResponse {
   result?: RecognitionResult;
 }
 
-/** Callback interface for speech recognition events. */
+/** Callback interface for speech recognition events.
+ *
+ * Every method is optional. Supply only the events you care about.
+ */
 export interface SpeechRecognitionListener {
-  onRecognitionStart(response: SpeechRecognitionResponse): void;
-  onSentenceBegin(response: SpeechRecognitionResponse): void;
-  onRecognitionResultChange(response: SpeechRecognitionResponse): void;
-  onSentenceEnd(response: SpeechRecognitionResponse): void;
-  onRecognitionComplete(response: SpeechRecognitionResponse): void;
-  onFail(response: SpeechRecognitionResponse | null, error: Error): void;
+  onRecognitionStart?(response: SpeechRecognitionResponse): void;
+  onSentenceBegin?(response: SpeechRecognitionResponse): void;
+  onRecognitionResultChange?(response: SpeechRecognitionResponse): void;
+  onSentenceEnd?(response: SpeechRecognitionResponse): void;
+  onRecognitionComplete?(response: SpeechRecognitionResponse): void;
+  onFail?(response: SpeechRecognitionResponse | null, error: Error): void;
 }
 
 /**
@@ -201,7 +204,7 @@ export class SpeechRecognizer {
   constructor(
     credential: Credential,
     engineModelType: string,
-    listener: SpeechRecognitionListener,
+    listener: SpeechRecognitionListener = {},
   ) {
     this.credential = credential;
     this.listener = listener;
@@ -420,8 +423,18 @@ export class SpeechRecognizer {
     });
   }
 
-  /** Send audio data to the ASR service. */
+  /**
+   * Send audio data to the ASR service.
+   *
+   * After the session has started stopping or is already stopped, write()
+   * resolves as a no-op so fire-and-forget callers (for example from a
+   * listener) cannot crash Node.js 15+ with an unhandled rejection.
+   * Calling write() before start() still rejects with NOT_STARTED.
+   */
   write(data: Buffer): Promise<void> {
+    if (this.state === State.STOPPED || this.state === State.STOPPING) {
+      return Promise.resolve();
+    }
     if (this.state !== State.RUNNING) {
       return Promise.reject(
         new ASRError(ErrorCode.NOT_STARTED, "recognizer not running"),
@@ -640,7 +653,7 @@ export class SpeechRecognizer {
       // Signal the session start once, before any message (mirrors the Go
       // readLoop entry).
       this.safeCallback(() =>
-        this.listener.onRecognitionStart({
+        this.listener.onRecognitionStart?.({
           code: 0,
           message: "success",
           voice_id: this.voiceId,
@@ -674,7 +687,7 @@ export class SpeechRecognizer {
         this.finish();
         this.safeCallback(
           () =>
-            this.listener.onFail(
+            this.listener.onFail?.(
               null,
               new ASRError(
                 ErrorCode.READ_FAILED,
@@ -705,7 +718,7 @@ export class SpeechRecognizer {
       // Non-terminal: the session continues.
       this.safeCallback(
         () =>
-          this.listener.onFail(
+          this.listener.onFail?.(
             null,
             new ASRError(ErrorCode.READ_FAILED, `unmarshal response failed: ${err}`),
           ),
@@ -720,7 +733,7 @@ export class SpeechRecognizer {
       this.finish();
       this.safeCallback(
         () =>
-          this.listener.onFail(resp, new ASRError(resp.code, resp.message)),
+          this.listener.onFail?.(resp, new ASRError(resp.code, resp.message)),
         true,
       );
       this.resolveDone();
@@ -736,7 +749,7 @@ export class SpeechRecognizer {
       this.dispatchEvent(resp);
       if (!this.callbackFailed) {
         this.safeCallback(
-          () => this.listener.onRecognitionComplete(resp),
+          () => this.listener.onRecognitionComplete?.(resp),
           true,
         );
       }
@@ -764,13 +777,13 @@ export class SpeechRecognizer {
 
     switch (resp.result?.slice_type) {
       case 0:
-        this.safeCallback(() => this.listener.onSentenceBegin(resp));
+        this.safeCallback(() => this.listener.onSentenceBegin?.(resp));
         break;
       case 1:
-        this.safeCallback(() => this.listener.onRecognitionResultChange(resp));
+        this.safeCallback(() => this.listener.onRecognitionResultChange?.(resp));
         break;
       case 2:
-        this.safeCallback(() => this.listener.onSentenceEnd(resp));
+        this.safeCallback(() => this.listener.onSentenceEnd?.(resp));
         break;
     }
   }
@@ -847,7 +860,7 @@ export class SpeechRecognizer {
     const stack = err instanceof Error && err.stack ? err.stack : String(err);
     this.safeCallback(
       () =>
-        this.listener.onFail(
+        this.listener.onFail?.(
           null,
           new ASRError(
             ErrorCode.READ_FAILED,

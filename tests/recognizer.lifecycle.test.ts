@@ -27,6 +27,55 @@ describe("SpeechRecognizer lifecycle robustness", () => {
     });
   });
 
+  test("write when stopped is a no-op", async () => {
+    const recognizer = createRecognizer() as any;
+    recognizer.state = 4; // STOPPED
+
+    await expect(recognizer.write(Buffer.from("abc"))).resolves.toBeUndefined();
+  });
+
+  test("write when stopping is a no-op", async () => {
+    const recognizer = createRecognizer() as any;
+    recognizer.state = 3; // STOPPING
+
+    await expect(recognizer.write(Buffer.from("abc"))).resolves.toBeUndefined();
+  });
+
+  test("partial listener only needs the callbacks it cares about", () => {
+    const texts: string[] = [];
+    const credential = new Credential(1300000000, 1400000000, "secret");
+    const recognizer = new SpeechRecognizer(credential, "16k_zh", {
+      onSentenceEnd: (resp) => texts.push(resp.result?.voice_text_str ?? ""),
+    });
+
+    (recognizer as any).handleMessage(
+      JSON.stringify({
+        code: 0,
+        message: "ok",
+        voice_id: "v1",
+        result: { slice_type: 2, index: 1, voice_text_str: "你好" },
+      }),
+    );
+
+    expect(texts).toEqual(["你好"]);
+  });
+
+  test("empty listener is accepted", () => {
+    const credential = new Credential(1300000000, 1400000000, "secret");
+    const recognizer = new SpeechRecognizer(credential, "16k_zh");
+
+    expect(() =>
+      (recognizer as any).handleMessage(
+        JSON.stringify({
+          code: 0,
+          message: "ok",
+          voice_id: "v1",
+          result: { slice_type: 2, index: 1, voice_text_str: "你好" },
+        }),
+      ),
+    ).not.toThrow();
+  });
+
   test("stop when already stopped is a no-op", async () => {
     const recognizer = createRecognizer() as any;
     recognizer.state = 4; // STOPPED

@@ -18,22 +18,10 @@ npm install trtc-asr
 import { Credential, SpeechRecognizer, SpeechRecognitionListener, SpeechRecognitionResponse } from "trtc-asr";
 import * as fs from "fs";
 
-// 实现回调接口
+// 只需实现关心的回调；其余事件可以省略。
 const listener: SpeechRecognitionListener = {
-  onRecognitionStart(resp: SpeechRecognitionResponse) {
-    console.log(`Recognition started, voice_id: ${resp.voice_id}`);
-  },
-  onSentenceBegin(resp: SpeechRecognitionResponse) {
-    console.log(`Sentence begin, index: ${resp.result.index}`);
-  },
-  onRecognitionResultChange(resp: SpeechRecognitionResponse) {
-    console.log(`Result: ${resp.result.voice_text_str}`);
-  },
   onSentenceEnd(resp: SpeechRecognitionResponse) {
-    console.log(`Sentence end: ${resp.result.voice_text_str}`);
-  },
-  onRecognitionComplete(resp: SpeechRecognitionResponse) {
-    console.log(`Complete, voice_id: ${resp.voice_id}`);
+    console.log(`Sentence end: ${resp.result?.voice_text_str}`);
   },
   onFail(resp: SpeechRecognitionResponse | null, error: Error) {
     console.error(`Failed: ${error}`);
