@@ -151,8 +151,9 @@ export interface SpeechRecognitionListener {
  *   instance to reconnect.
  * - All setXxx options must be configured before start().
  * - Recognition callbacks are delivered synchronously on the WebSocket
- *   message pump; a faulty callback never crashes the loop (exceptions are
- *   swallowed and logged, mirroring the Go SDK's panic shielding).
+ *   message pump. A faulty callback never crashes the host process: the
+ *   exception is recovered, the session is finished, and the failure is
+ *   surfaced via onFail (mirroring the Go SDK's panic shielding).
  */
 export class SpeechRecognizer {
   private credential: Credential;
@@ -192,6 +193,10 @@ export class SpeechRecognizer {
   private doneResolve: (() => void) | null = null;
   private donePromise: Promise<void> | null = null;
   private finishDone = false;
+  // Set when a user callback raises; the message pump then skips further
+  // dispatch (so a panicking onSentenceEnd on a final frame does not still
+  // deliver onRecognitionComplete).
+  private callbackFailed = false;
 
   constructor(
     credential: Credential,
@@ -457,9 +462,24 @@ export class SpeechRecognizer {
    *
    * For terminal callbacks (onRecognitionComplete / terminal onFail), the
    * recognizer has already advanced to stopped before callback dispatch, so
-   * stop() rejects immediately with not-running.
+   * stop() resolves as a no-op. Fire-and-forget `stop()` from those
+   * callbacks is therefore safe and will not produce an unhandled rejection.
    */
   async stop(): Promise<void> {
+    if (this.state === State.STOPPED) {
+      return;
+    }
+    if (this.state === State.STOPPING) {
+      if (this.donePromise) {
+        await Promise.race([
+          this.donePromise,
+          new Promise<void>((resolve) => setTimeout(resolve, this.stopTimeout)),
+        ]);
+      }
+      this.close();
+      this.state = State.STOPPED;
+      return;
+    }
     if (this.state !== State.RUNNING) {
       throw new ASRError(ErrorCode.NOT_STARTED, "recognizer not running");
     }
@@ -652,14 +672,16 @@ export class SpeechRecognizer {
         // Terminal: finish the lifecycle before notifying, so a stop() /
         // write() call from inside onFail sees the stopped state.
         this.finish();
-        this.safeCallback(() =>
-          this.listener.onFail(
-            null,
-            new ASRError(
-              ErrorCode.READ_FAILED,
-              "websocket connection closed unexpectedly",
+        this.safeCallback(
+          () =>
+            this.listener.onFail(
+              null,
+              new ASRError(
+                ErrorCode.READ_FAILED,
+                "websocket connection closed unexpectedly",
+              ),
             ),
-          ),
+          true,
         );
       }
       this.resolveDone();
@@ -681,11 +703,13 @@ export class SpeechRecognizer {
       resp = JSON.parse(text);
     } catch (err) {
       // Non-terminal: the session continues.
-      this.safeCallback(() =>
-        this.listener.onFail(
-          null,
-          new ASRError(ErrorCode.READ_FAILED, `unmarshal response failed: ${err}`),
-        ),
+      this.safeCallback(
+        () =>
+          this.listener.onFail(
+            null,
+            new ASRError(ErrorCode.READ_FAILED, `unmarshal response failed: ${err}`),
+          ),
+        true,
       );
       return;
     }
@@ -694,8 +718,10 @@ export class SpeechRecognizer {
       // Terminal: finish the lifecycle before notifying, so a stop()/write()
       // call from inside onFail sees the stopped state.
       this.finish();
-      this.safeCallback(() =>
-        this.listener.onFail(resp, new ASRError(resp.code, resp.message)),
+      this.safeCallback(
+        () =>
+          this.listener.onFail(resp, new ASRError(resp.code, resp.message)),
+        true,
       );
       this.resolveDone();
       return;
@@ -708,7 +734,12 @@ export class SpeechRecognizer {
     if (resp.final === 1) {
       this.finish();
       this.dispatchEvent(resp);
-      this.safeCallback(() => this.listener.onRecognitionComplete(resp));
+      if (!this.callbackFailed) {
+        this.safeCallback(
+          () => this.listener.onRecognitionComplete(resp),
+          true,
+        );
+      }
       this.resolveDone();
       return;
     }
@@ -780,15 +811,52 @@ export class SpeechRecognizer {
   /**
    * Deliver a listener callback while shielding the message pump from an
    * exception raised inside the user-supplied listener. A faulty callback
-   * must never crash the host process or prevent cleanup from running.
+   * must never crash the host process.
+   *
+   * Non-shielded callbacks that throw finish the session and surface the
+   * failure via onFail (Go readLoop recover). Shielded callbacks
+   * (onFail / onRecognitionComplete / already-failed) only log.
+   *
+   * A thenable returned by the callback is also observed: an async listener
+   * that rejects would otherwise become an unhandled rejection and crash
+   * Node.js 15+.
    */
-  private safeCallback(fn: () => void): void {
+  private safeCallback(fn: () => void, shield = false): boolean {
     try {
-      fn();
+      const ret = fn() as unknown;
+      if (ret && typeof (ret as { then?: unknown }).then === "function") {
+        (ret as Promise<unknown>).catch((err) => {
+          this.onListenerException(err, shield);
+        });
+      }
+      return !this.callbackFailed;
     } catch (err) {
+      this.onListenerException(err, shield);
+      return false;
+    }
+  }
+
+  private onListenerException(err: unknown, shield: boolean): void {
+    if (shield || this.callbackFailed) {
       // eslint-disable-next-line no-console
       console.error("trtc-asr: listener callback raised, ignored:", err);
+      return;
     }
+    this.callbackFailed = true;
+    this.finish();
+    const stack = err instanceof Error && err.stack ? err.stack : String(err);
+    this.safeCallback(
+      () =>
+        this.listener.onFail(
+          null,
+          new ASRError(
+            ErrorCode.READ_FAILED,
+            `recovered from panic in listener callback: ${err}\n${stack}`,
+          ),
+        ),
+      true,
+    );
+    this.resolveDone();
   }
 
   private close(): void {

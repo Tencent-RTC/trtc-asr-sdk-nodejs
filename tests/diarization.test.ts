@@ -177,7 +177,7 @@ describe("message pump diarization decoding", () => {
     expect(captured.end).toHaveLength(1);
     expect(captured.complete).toEqual(["v1"]);
     // Terminal response: the recognizer reached the stopped state before
-    // the complete callback, so a re-entrant stop() would reject immediately.
+    // the complete callback, so a re-entrant stop() is a no-op.
     expect((recognizer as any).state).toBe(4); // STOPPED
     expect(captured.fail).toHaveLength(0);
   });
@@ -202,7 +202,7 @@ describe("message pump diarization decoding", () => {
     expect((recognizer as any).state).toBe(4); // STOPPED
   });
 
-  test("swallows listener exceptions (panic shielding)", () => {
+  test("surfaces listener exceptions via onFail (panic shielding)", () => {
     const base = makeCaptureListener();
     const brokenListener: SpeechRecognitionListener = {
       ...base.listener,
@@ -220,21 +220,16 @@ describe("message pump diarization decoding", () => {
       result: { slice_type: 2, index: 0, voice_text_str: "x" },
     };
 
-    const errorSpy = jest.spyOn(console, "error").mockImplementation(() => {});
-    try {
-      expect(() =>
-        (recognizer as any).handleMessage(JSON.stringify(frame)),
-      ).not.toThrow();
-      expect(errorSpy).toHaveBeenCalledWith(
-        expect.stringContaining("listener callback raised"),
-        expect.any(Error),
-      );
-    } finally {
-      errorSpy.mockRestore();
-    }
+    expect(() =>
+      (recognizer as any).handleMessage(JSON.stringify(frame)),
+    ).not.toThrow();
 
-    // complete still delivered after the broken sentence-end callback.
-    expect(base.captured.complete).toEqual(["v1"]);
+    // Matching Go: the session is finished and the panic is surfaced via
+    // onFail. onRecognitionComplete is not delivered after the panic.
+    expect(base.captured.fail).toHaveLength(1);
+    expect(String(base.captured.fail[0][1])).toContain("listener bug");
+    expect(String(base.captured.fail[0][1])).toContain("panic");
+    expect(base.captured.complete).toEqual([]);
     expect((recognizer as any).state).toBe(4); // STOPPED
   });
 

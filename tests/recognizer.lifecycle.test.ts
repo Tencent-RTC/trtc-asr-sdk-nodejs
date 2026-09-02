@@ -27,6 +27,14 @@ describe("SpeechRecognizer lifecycle robustness", () => {
     });
   });
 
+  test("stop when already stopped is a no-op", async () => {
+    const recognizer = createRecognizer() as any;
+    recognizer.state = 4; // STOPPED
+
+    await expect(recognizer.stop()).resolves.toBeUndefined();
+    expect(recognizer.state).toBe(4);
+  });
+
   test("stop without connection should throw NOT_STARTED and move to STOPPED", async () => {
     const recognizer = createRecognizer() as any;
     recognizer.state = 2; // RUNNING
