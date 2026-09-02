@@ -144,6 +144,19 @@ describe("SDK identification on every transport", () => {
     expect(query.get("voice_id")).toBe("voice-sdkinfo");
     expect(query.get("signature")).toBeTruthy();
     expect(query.get("usersig")).toBe(query.get("signature"));
+    expect(new URL(capturedUrl).host).toBe("asr.cloud-rtc.com");
+  });
+
+  test("WebSocket handshake uses the international host when setSite(SITE_INTL)", async () => {
+    const wsMock = require("ws") as jest.Mock;
+    wsMock.mockClear();
+
+    const cred = makeCredential();
+    cred.setSite("intl");
+    const recognizer = new SpeechRecognizer(cred, "16k_zh", noopListener);
+    await recognizer.start();
+    const capturedUrl = wsMock.mock.calls[0][0] as string;
+    expect(new URL(capturedUrl).host).toBe("asr-intl.cloud-rtc.com");
   });
 
   test("SignatureParams query carries the SDK identity", () => {

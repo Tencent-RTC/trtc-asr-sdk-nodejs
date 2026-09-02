@@ -4,7 +4,7 @@
 
 import WebSocket from "ws";
 import { v4 as uuidv4 } from "uuid";
-import { Credential } from "./credential";
+import { Credential, resolveWSEndpoint } from "./credential";
 import { ASRError, ErrorCode } from "./errors";
 import {
   validateEnumOption,
@@ -163,7 +163,7 @@ export class SpeechRecognizer {
   private listener: SpeechRecognitionListener;
   private ws: WebSocket | null = null;
 
-  private endpoint = ENDPOINT;
+  private endpoint = "";
   private engineModelType: string;
   private voiceFormat = 1; // PCM
   private needVad = 1;
@@ -212,6 +212,11 @@ export class SpeechRecognizer {
   }
 
   // ---- Configuration setters ----
+
+  /** Override the WebSocket endpoint (for testing against a mock server). */
+  setEndpoint(endpoint: string): void {
+    this.endpoint = endpoint || "";
+  }
 
   setVoiceFormat(format: number): void {
     this.voiceFormat = format;
@@ -635,7 +640,8 @@ export class SpeechRecognizer {
     });
 
     const queryString = sigParams.buildQueryStringWithSignature(userSig);
-    const wsUrl = `${this.endpoint}/asr/v2/${this.credential.appId}?${queryString}`;
+    const base = resolveWSEndpoint(this.endpoint, this.credential.site);
+    const wsUrl = `${base}/asr/v2/${this.credential.appId}?${queryString}`;
 
     this.donePromise = new Promise<void>((res) => {
       this.doneResolve = res;

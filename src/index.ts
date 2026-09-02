@@ -2,7 +2,7 @@
  * Tencent TRTC ASR SDK for Node.js.
  */
 
-export { Credential } from "./credential";
+export { Credential, SITE_CN, SITE_INTL } from "./credential";
 export { ASRError, ErrorCode } from "./errors";
 export {
   SignatureParams,

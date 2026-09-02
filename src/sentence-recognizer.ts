@@ -8,7 +8,7 @@
  */
 
 import { v4 as uuidv4 } from "uuid";
-import { Credential } from "./credential";
+import { Credential, resolveHTTPEndpoint } from "./credential";
 import { ASRError, ErrorCode } from "./errors";
 import { sdkReportQuery } from "./sdkinfo";
 import { genUserSig } from "./usersig";
@@ -80,7 +80,7 @@ export class SentenceRecognizer {
 
   constructor(credential: Credential) {
     this.credential = credential;
-    this.endpoint = SENTENCE_ENDPOINT;
+    this.endpoint = "";
     this.timeout = 30000;
   }
 
@@ -122,8 +122,9 @@ export class SentenceRecognizer {
 
     // Build URL with query parameters
     const timestamp = Math.floor(Date.now() / 1000);
+    const base = resolveHTTPEndpoint(this.endpoint, this.credential.site);
     const reqUrl =
-      `${this.endpoint}/v1/SentenceRecognition` +
+      `${base}/v1/SentenceRecognition` +
       `?AppId=${this.credential.appId}` +
       `&Secretid=${this.credential.appId}` +
       `&RequestId=${requestId}` +

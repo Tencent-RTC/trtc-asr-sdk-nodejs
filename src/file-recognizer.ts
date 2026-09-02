@@ -13,7 +13,7 @@
  */
 
 import { v4 as uuidv4 } from "uuid";
-import { Credential } from "./credential";
+import { Credential, resolveHTTPEndpoint } from "./credential";
 import { ASRError, ErrorCode } from "./errors";
 import { validateSpeakerDiarization, validateVadTuning } from "./params";
 import { sdkReportQuery } from "./sdkinfo";
@@ -165,7 +165,7 @@ export class FileRecognizer {
 
   constructor(credential: Credential) {
     this.credential = credential;
-    this.endpoint = FILE_ENDPOINT;
+    this.endpoint = "";
     this.timeout = 60000;
   }
 
@@ -364,8 +364,9 @@ export class FileRecognizer {
     }
 
     const timestamp = Math.floor(Date.now() / 1000);
+    const base = resolveHTTPEndpoint(this.endpoint, this.credential.site);
     const reqUrl =
-      `${this.endpoint}${path}` +
+      `${base}${path}` +
       `?AppId=${this.credential.appId}` +
       `&Secretid=${this.credential.appId}` +
       `&RequestId=${requestId}` +
