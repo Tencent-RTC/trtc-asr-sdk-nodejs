@@ -23,9 +23,9 @@ import {
 
 // ===== Configuration =====
 // Fill in your credentials before running.
-const APP_ID = 0; // Tencent Cloud APPID
-const SDK_APP_ID = 0; // TRTC application ID
-const SECRET_KEY = ""; // TRTC SDK secret key
+const APP_ID = Number(process.env.TRTC_ASR_APP_ID || 0); // Tencent Cloud APPID
+const SDK_APP_ID = Number(process.env.TRTC_ASR_SDK_APP_ID || 0); // TRTC application ID
+const SECRET_KEY = process.env.TRTC_ASR_SECRET_KEY || ""; // TRTC SDK secret key
 
 async function main(): Promise<void> {
   const { values } = parseArgs({

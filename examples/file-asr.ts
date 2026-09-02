@@ -5,6 +5,9 @@
  *   npx ts-node examples/file-asr.ts -f test.wav
  *   npx ts-node examples/file-asr.ts -u https://example.com/test.wav
  *   npx ts-node examples/file-asr.ts -f audio.mp3 -e 16k_zh
+ *   npx ts-node examples/file-asr.ts -u https://example.com/call.wav --diarization 1
+ *   npx ts-node examples/file-asr.ts -u https://example.com/call.wav --diarization 3 \
+ *     --roles "teacher=https://example.com/teacher.wav"
  *
  * Prerequisites:
  *   1. Get Tencent Cloud APPID: https://console.cloud.tencent.com/cam/capi
@@ -21,12 +24,35 @@ import {
   CreateRecTaskRequest,
   FileSourceType,
 } from "../src/file-recognizer";
+import { SpeakerRole } from "../src/signature";
+
+/** Convert "name=url,name2=url2" into voiceprint enrollment roles. */
+function parseRoles(spec: string): SpeakerRole[] {
+  if (!spec) return [];
+  const roles: SpeakerRole[] = [];
+  for (const raw of spec.split(",")) {
+    const entry = raw.trim();
+    if (!entry) continue;
+    const eq = entry.indexOf("=");
+    if (eq <= 0) {
+      console.error(
+        `Invalid --roles entry '${entry}', expected name=https://url`,
+      );
+      process.exit(1);
+    }
+    roles.push({
+      roleName: entry.slice(0, eq).trim(),
+      audioUrl: entry.slice(eq + 1).trim(),
+    });
+  }
+  return roles;
+}
 
 // ===== Configuration =====
 // Fill in your credentials before running.
-const APP_ID = 0; // Tencent Cloud APPID
-const SDK_APP_ID = 0; // TRTC application ID
-const SECRET_KEY = ""; // TRTC SDK secret key
+const APP_ID = Number(process.env.TRTC_ASR_APP_ID || 0); // Tencent Cloud APPID
+const SDK_APP_ID = Number(process.env.TRTC_ASR_SDK_APP_ID || 0); // TRTC application ID
+const SECRET_KEY = process.env.TRTC_ASR_SECRET_KEY || ""; // TRTC SDK secret key
 
 async function main(): Promise<void> {
   const { values } = parseArgs({
@@ -36,6 +62,11 @@ async function main(): Promise<void> {
       engine: { type: "string", short: "e", default: "16k_zh_en" },
       res: { type: "string", default: "1" },
       callback: { type: "string", default: "" },
+      diarization: { type: "string", default: "0" },
+      speakers: { type: "string", default: "0" },
+      roles: { type: "string", default: "" },
+      "vad-level": { type: "string", default: "-1" },
+      "noise-threshold": { type: "string", default: "-1" },
       poll: { type: "string", default: "1000" },
       timeout: { type: "string", default: "600000" },
     },
@@ -46,6 +77,11 @@ async function main(): Promise<void> {
   const engine = values.engine!;
   const resFormat = parseInt(values.res!, 10);
   const callbackUrl = values.callback!;
+  const diarization = parseInt(values.diarization!, 10);
+  const speakers = parseInt(values.speakers!, 10);
+  const roles = parseRoles(values.roles!);
+  const vadLevel = parseInt(values["vad-level"]!, 10);
+  const noiseThreshold = parseFloat(values["noise-threshold"]!);
   const pollMs = parseInt(values.poll!, 10);
   const timeoutMs = parseInt(values.timeout!, 10);
 
@@ -75,6 +111,15 @@ async function main(): Promise<void> {
   const credential = new Credential(APP_ID, SDK_APP_ID, SECRET_KEY);
   const recognizer = new FileRecognizer(credential);
 
+  const commonOptions: Partial<CreateRecTaskRequest> = {};
+  if (diarization) {
+    commonOptions.speakerDiarization = diarization;
+    commonOptions.speakerNumber = speakers;
+    if (roles.length > 0) commonOptions.speakerRoles = roles;
+  }
+  if (vadLevel >= 0) commonOptions.vadLevel = vadLevel;
+  if (noiseThreshold >= 0) commonOptions.noiseThreshold = noiseThreshold;
+
   let taskId: string;
 
   if (audioURL) {
@@ -86,6 +131,7 @@ async function main(): Promise<void> {
       sourceType: FileSourceType.URL,
       url: audioURL,
       callbackUrl,
+      ...commonOptions,
     };
     taskId = await recognizer.createTask(req);
   } else {
@@ -98,6 +144,7 @@ async function main(): Promise<void> {
       resTextFormat: resFormat,
       sourceType: FileSourceType.DATA,
       callbackUrl,
+      ...commonOptions,
     };
     taskId = await recognizer.createTaskFromDataWithOptions(
       Buffer.from(data),
@@ -126,8 +173,16 @@ async function main(): Promise<void> {
     console.log(`\n=== Sentence Details ===`);
     for (let i = 0; i < status.resultDetail.length; i++) {
       const detail = status.resultDetail[i];
+      let speaker = "";
+      if (detail.speakerRoleName) {
+        speaker = ` [${detail.speakerRoleName}]`;
+      } else if (detail.speakerId) {
+        speaker = ` [spk${detail.speakerId}]`;
+      } else if (detail.channelId) {
+        speaker = ` [ch${detail.channelId}]`;
+      }
       console.log(
-        `[${i}] ${detail.finalSentence} (${detail.startMs}-${detail.endMs} ms, speed=${detail.speechSpeed.toFixed(1)} words/s)`,
+        `[${i}]${speaker} ${detail.finalSentence} (${detail.startMs}-${detail.endMs} ms, speed=${detail.speechSpeed.toFixed(1)} words/s)`,
       );
 
       if (detail.words.length > 0) {
