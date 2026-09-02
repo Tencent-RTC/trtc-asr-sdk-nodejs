@@ -84,7 +84,7 @@ describe("sdkinfo", () => {
   test("reports the fixed language, type and version", () => {
     expect(SDK_LANGUAGE).toBe("nodejs");
     expect(SDK_TYPE).toBe("server");
-    expect(SDK_VERSION).toBe("0.1.0");
+    expect(SDK_VERSION).toBe("1.0.0");
   });
 
   test("normalizes the current platform to the service vocabulary", () => {
