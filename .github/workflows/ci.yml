@@ -45,6 +45,10 @@ jobs:
 
       - run: npm ci
 
+      # dist/ is gitignored, so the checkout has no build output; build before
+      # packing or the tarball is empty by construction.
+      - run: npm run build
+
       # `files: ["dist"]` means a missing build step or a stray path would ship
       # an empty package. Verify the tarball contents before publishing does.
       - name: Verify publishable contents
