@@ -2,203 +2,132 @@
 
 基于 TRTC 鉴权体系的语音识别（ASR）Node.js SDK，支持实时语音识别（WebSocket）、一句话识别（HTTP）和录音文件识别（异步 HTTP）三种模式。
 
+本 SDK 面向**新版 v3 协议**：只需 `SDKAppID` + `SecretKey`（无需腾讯云 AppID），`auth`/`params` 分块、全 snake_case、扁平响应 + 数字错误码。v3 客户端位于 `v3` 命名空间（`import { v3 } from "trtc-asr"`）。
+
 > 其他语言 SDK：[Go](https://github.com/Tencent-RTC/trtc-asr-sdk-go) | [Python](https://github.com/Tencent-RTC/trtc-asr-sdk-python) | [Java](https://github.com/Tencent-RTC/trtc-asr-sdk-java) | [Rust](https://github.com/Tencent-RTC/trtc-asr-sdk-rust) | [C++](https://github.com/Tencent-RTC/trtc-asr-sdk-cpp)
-
-## 安装
-
-```bash
-npm install trtc-asr
-```
-
-**要求**：Node.js >= 16
-
-## 快速开始
-
-```typescript
-import { Credential, SITE_INTL, SpeechRecognizer, SpeechRecognitionListener, SpeechRecognitionResponse } from "trtc-asr";
-import * as fs from "fs";
-
-// 只需实现关心的回调；其余事件可以省略。
-const listener: SpeechRecognitionListener = {
-  onSentenceEnd(resp: SpeechRecognitionResponse) {
-    console.log(`Sentence end: ${resp.result?.voice_text_str}`);
-  },
-  onFail(resp: SpeechRecognitionResponse | null, error: Error) {
-    console.error(`Failed: ${error}`);
-  },
-};
-
-async function main() {
-  // 1. 创建凭证
-  const credential = new Credential(
-    1300403317,              // 腾讯云 APPID
-    1400188366,              // TRTC SDKAppID
-    "your-sdk-secret-key",   // SDK密钥
-  );
-  // credential.setSite(SITE_INTL); // 国际站；不调用则走国内站
-
-  // 2. 创建识别器
-  const recognizer = new SpeechRecognizer(credential, "16k_zh", listener);
-
-  // 3. 可选配置
-  // recognizer.setHotwordId("hotword-id");     // 设置热词
-  // recognizer.setVadSilenceTime(500);          // VAD 静音时间
-
-  // 4. 启动识别
-  await recognizer.start();
-
-  // 5. 发送音频数据
-  const fileData = fs.readFileSync("audio.pcm");
-  const SLICE_SIZE = 6400; // 200ms of 16kHz 16bit mono PCM
-  for (let offset = 0; offset < fileData.length; offset += SLICE_SIZE) {
-    const chunk = fileData.subarray(offset, offset + SLICE_SIZE);
-    await recognizer.write(Buffer.from(chunk));
-    await new Promise((resolve) => setTimeout(resolve, 200)); // 模拟实时
-  }
-
-  // 6. 停止识别
-  await recognizer.stop();
-}
-
-main().catch(console.error);
-```
-
-### 一句话识别
-
-```typescript
-import { Credential, SentenceRecognizer } from "trtc-asr";
-import * as fs from "fs";
-
-async function main() {
-  // 1. 创建凭证
-  const credential = new Credential(
-    0,                       // 腾讯云 APPID
-    0,                       // TRTC SDKAppID
-    "your-sdk-secret-key",   // SDK密钥
-  );
-
-  // 2. 创建一句话识别器
-  const recognizer = new SentenceRecognizer(credential);
-
-  // 3. 从本地文件识别（自动 base64 编码）
-  const data = fs.readFileSync("audio.pcm");
-  const result = await recognizer.recognizeData(Buffer.from(data), "pcm", "16k_zh_en");
-
-  console.log(`识别结果: ${result.result}`);
-  console.log(`音频时长: ${result.audioDuration} ms`);
-
-  // 或者从 URL 识别
-  // const result = await recognizer.recognizeURL("https://example.com/audio.wav", "wav", "16k_zh_en");
-}
-
-main().catch(console.error);
-```
-
-### 录音文件识别
-
-```typescript
-import { Credential, FileRecognizer } from "trtc-asr";
-import * as fs from "fs";
-
-async function main() {
-  // 1. 创建凭证
-  const credential = new Credential(
-    0,                       // 腾讯云 APPID
-    0,                       // TRTC SDKAppID
-    "your-sdk-secret-key",   // SDK密钥
-  );
-
-  // 2. 创建录音文件识别器
-  const recognizer = new FileRecognizer(credential);
-
-  // 3. 提交识别任务（本地文件）
-  const data = fs.readFileSync("audio.wav");
-  const taskId = await recognizer.createTaskFromData(Buffer.from(data), "16k_zh_en");
-  console.log(`任务已提交: ${taskId}`);
-
-  // 4. 轮询等待结果（默认 1 秒间隔，10 分钟超时）
-  const status = await recognizer.waitForResult(taskId);
-
-  console.log(`识别结果: ${status.result}`);
-  console.log(`音频时长: ${status.audioDuration.toFixed(2)} s`);
-
-  // 或者从 URL 提交（支持更大文件，≤1GB / ≤12h）
-  // const taskId = await recognizer.createTaskFromURL("https://example.com/audio.wav", "16k_zh_en");
-
-  // 或者自定义轮询间隔（毫秒）
-  // const status = await recognizer.waitForResultWithInterval(taskId, 2000, 1800000);
-}
-
-main().catch(console.error);
-```
+>
+> **旧版协议（v2 / v1）**的完整说明与客户端（包顶层导出）见 [docs/v2_protocol.md](./docs/v2_protocol.md)。旧版客户端继续维护，存量用户无需任何改动。
 
 ## 前提条件
 
-使用本 SDK 前，您需要准备三个凭证：`AppID`、`SDKAppID`、`SecretKey`。国内站与国际站的账号体系不同，请按您的站点参照官方快速接入指南完成注册、创建应用与服务开通：
+使用本 SDK 前，您需要准备两个凭证：`SDKAppID`、`SecretKey`。国内站与国际站的账号体系不同，请按您的站点参照官方快速接入指南完成注册、创建应用与服务开通：
 
 - **国内站**：[快速接入指南](https://xai.cloud-rtc.com/#gettingStarted) — 注册腾讯云账号并完成实名认证 → 在 [TRTC 控制台](https://console.cloud.tencent.com/trtc/app)创建应用 → 开通「AI 智能识别」（体验版可免费试用）
 - **国际站**：[Quick Start](https://xai-intl.cloud-rtc.com/#gettingStarted) — 在 [trtc.io](https://www.trtc.io) 注册（自动开通 Tencentcloud 账号，无需实名认证）→ 在 [console.trtc.io](https://console.trtc.io) 创建应用 → 开通「AI Speech Recognition」（仅 RTC Engine Lite 及以上包月套餐，Free Trial 不支持）
 
-> **注意**：国际站的 `AppID` 不在 trtc.io 控制台显示，需在 Tencentcloud 控制台「账号信息」页查看（头像 → Account Information）；`SDKAppID` 与 `SecretKey` 均在应用详情页获取。
+> **v3 灰度**：v3 四个接口受服务端 `EnableV3Route` 灰度开关（SDKAppID 维度）控制。未开启时在线回 `4001`、离线回 HTTP 404。接入前请先联系服务团队为您的 SDKAppID 开启。
 
-## 协议说明
+## 协议说明（v3）
 
-### WebSocket 连接
+### 接口路径
 
-- **连接地址**：
-  - 国内站：`wss://asr.cloud-rtc.com/asr/v2/<appid>?{请求参数}`
-  - 国际站：`wss://asr-intl.cloud-rtc.com/asr/v2/<appid>?{请求参数}`（`credential.setSite(SITE_INTL)`）
-
-其中 `<appid>` 为腾讯云账号的 APPID，国内站可通过 [API 密钥管理页面](https://console.cloud.tencent.com/cam/capi) 获取，国际站见 Tencentcloud 控制台「账号信息」。
-
-### 鉴权方式
-
-鉴权信息携带在 URL query 参数中（浏览器原生 WebSocket 无法自定义 header，因此走 query 传递）：
-
-| 参数 | 说明 |
+| 模式 | 路径 |
 |------|------|
-| `sdkappid` | TRTC 应用 ID，从 TRTC 控制台获取（[国内站](https://console.cloud.tencent.com/trtc/app) / [国际站](https://console.trtc.io)） |
-| `usersig` | TRTC 签名，[计算文档](https://cloud.tencent.com/document/product/647/17275)，UserID 等于 `voice_id` |
+| 实时识别（WebSocket） | `wss://{host}/asr/v3?voice_id=<voice_id>` |
+| 一句话识别 | `POST https://{host}/v3/transcribe` |
+| 录音文件识别 | `POST https://{host}/v3/create_transcription` |
+| 任务查询 | `POST https://{host}/v3/describe_transcription` |
 
-两者均由 SDK 自动填充，用户无需关心。
+`{host}` 国内站为 `asr.cloud-rtc.com`，国际站为 `asr-intl.cloud-rtc.com`（`credential.setSite(SITE_INTL)`）。
 
-### 请求参数
+### 鉴权与参数（auth / params 分块）
 
-| 参数 | 必填 | 类型 | 说明 |
+v3 把请求拆成两个正交的块，字段全程 snake_case：
+
+- `auth`：身份与签名 —— `sdkappid`（string）、`usersig`（TRTC 签名，identifier 在线 = `voice_id`、离线 = `request_id`）、`request_id`（离线，SDK 自动生成 uuid）。
+- `params`：业务识别参数（引擎、VAD、热词、过滤等），字段名与 v2 在线 query 同名（snake_case）。
+
+在线：WebSocket 建联后 **3 秒内**发送首帧 JSON：
+
+```json
+{
+  "type": "start",
+  "auth": {"sdkappid": "1400000001", "usersig": "eJw..."},
+  "params": {"engine_model_type": "16k_zh_en", "voice_format": 1, "needvad": 1}
+}
+```
+
+鉴权通过后服务端回 `{"code":0,"message":"success","voice_id":"..."}`，之后上行 binary 音频帧、结束发 `{"type":"end"}`。SDK 的 `start()` 会**同步等待这个 ack**，鉴权/参数错误直接从 `start()` 抛出。
+
+离线：HTTP POST body 为对称的 `{"auth":{...},"params":{...}}`，响应扁平化（无 `Response` 外壳）：
+
+```json
+{"code": 0, "message": "success", "request_id": "req-uuid", "result": "识别文本", "audio_duration": 1234}
+```
+
+> **注意**：v3 离线鉴权失败是 HTTP 200 + `{"code":4002}`，判断结果请以 body 的 `code` 为准（SDK 已处理，`code != 0` 会抛出携带该 code 的 `ASRError`）。
+
+### 在线交互流程（建联 → 鉴权 → 识别）
+
+```mermaid
+sequenceDiagram
+    autonumber
+    participant C as 客户端（v3 SDK）
+    participant S as ASR 服务端
+
+    Note over C,S: ① 建联
+    C->>S: WebSocket Upgrade /asr/v3?voice_id=xxx
+    S-->>C: 101 Switching Protocols
+
+    Note over C,S: ② 鉴权 + 参数下发（首帧，须在 3s 内）
+    C->>S: {"type":"start","auth":{"sdkappid","usersig"},"params":{...}}
+    alt 鉴权通过
+        S-->>C: ack {"code":0,"message":"success","voice_id":"xxx"}
+    else 鉴权/参数失败
+        S-->>C: {"code":4002/4001,...} 错误帧，随后正常关闭连接
+    end
+
+    Note over C,S: ③ 识别（全双工）
+    loop 按实时率推流（16k 每 40ms 1280B，单帧 ≤256KB）
+        C->>S: binary 音频帧
+    end
+    S-->>C: result.slice_type=0（句开始）
+    S-->>C: result.slice_type=1（中间结果）×N
+    S-->>C: result.slice_type=2（句末稳定结果）
+
+    C->>S: {"type":"end"}（音频发完）
+    S-->>C: {"final":1}（整流结束）
+    C->>S: 关闭连接
+```
+
+> SDK 行为对应：`start()` = ①+②（同步等 ack，失败立即抛错）；`write()` = ③上行；下行经 listener 回调（`onSentenceBegin` / `onRecognitionResultChange` / `onSentenceEnd` / `onRecognitionComplete`）；`stop()` = 发 `end` 并等 `final:1`。空闲保护：15s 未发音频服务端会以 `4008` 断连。
+
+### 在线首帧参数（params）
+
+`needvad` / `vad_silence_time` / `vad_level` / `input_sample_rate` / `convert_num_mode` / `filter_empty_result` / `noise_threshold` 为可选三态字段：未传走服务端缺省，显式传 `0` 有业务含义（v2 的 query 传参会吞掉显式 0，v3 已修正）。
+
+| 参数 | 类型 | 默认 | 说明 |
 |------|------|------|------|
-| `secretid` | 是 | String | SDK 内部自动用 APPID 填充 |
-| `sdkappid` | 是 | Integer | TRTC 应用 ID，SDK 内部自动填充 |
-| `usersig` | 是 | String | TRTC 签名，SDK 内部自动生成（值与 `signature` 一致） |
-| `timestamp` | 是 | Integer | 当前 UNIX 时间戳（秒） |
-| `expired` | 是 | Integer | 签名有效期截止时间戳，必须大于 timestamp |
-| `nonce` | 是 | Integer | 随机正整数，最长10位 |
-| `engine_model_type` | 是 | String | 引擎类型：`8k_zh`(中文电话)、`16k_zh`(中文通用)、`16k_zh_en`(中英文) |
-| `voice_id` | 是 | String | 音频流全局唯一标识（推荐 UUID），最长128位 |
-| `voice_format` | 否 | Integer | 语音编码：`1` PCM（默认） |
-| `needvad` | 否 | Integer | `0` 关闭 VAD，`1` 开启（默认） |
-| `hotword_id` | 否 | String | 热词表 ID |
-| `hotword_list` | 否 | String | 临时热词列表：`词1|权重1,词2|权重2`（单词 ≤30 字节，权重 1-11 或 100） |
-| `customization_id` | 否 | String | 自学习模型 ID |
-| `replace_text_id` | 否 | String | 替换词表 ID |
-| `filter_dirty` | 否 | Integer | 过滤脏词：`0` 不过滤，`1` 过滤，`2` 替换为 * |
-| `filter_modal` | 否 | Integer | 过滤语气词：`0` 不过滤，`1` 部分，`2` 严格 |
-| `filter_punc` | 否 | Integer | 过滤句末句号：`0` 不过滤，`1` 过滤 |
-| `filter_empty_result` | 否 | Integer | 空结果回调：`0` 回调，`1` 不回调（服务端默认） |
-| `convert_num_mode` | 否 | Integer | 数字转换：`0` 不转，`1` 智能转换（默认），`3` 数学转换 |
-| `word_info` | 否 | Int | 显示词级时间：`0` 不显示，`1` 显示，`2` 含标点 |
-| `vad_silence_time` | 否 | Integer | 静音断句阈值（ms），范围 240-2000，默认 800 |
-| `vad_level` | 否 | Integer | VAD 场景档：`0` 高召回，`1` 远场过滤（服务端默认） |
-| `noise_threshold` | 否 | Float | VAD 噪声微调，范围 `0.0-4.0`；设置后覆盖 `vad_level` 档位 |
-| `max_speak_time` | 否 | Integer | 强制断句时间（ms），范围 5000-90000，默认 60000 |
-| `input_sample_rate` | 否 | Integer | 输入 PCM 采样率，仅支持 `8000`（8k 音频喂 16k 引擎） |
-| `speaker_diarization` | 否 | Integer | 说话人分离：`0` 关闭（默认），`1` 匿名聚类，`3` 声纹角色认证 |
-| `speaker_number` | 否 | Integer | 说话人数量提示（分离开启时生效，用于在线聚类）；`0` 自动检测 |
-| `speaker_roles` | 否 | String | 临时声纹角色 JSON 数组，仅 `speaker_diarization=3`，如 `[{"RoleName":"teacher","AudioUrl":"https://.../a.wav"}]` |
-| `voiceprintids` | 否 | String | 已注册声纹 ID JSON 数组，仅 `speaker_diarization=3` |
-| `language` | 否 | String | 指定识别语言（如 `zh`、`en`），留空为自动检测 |
-| `signature` | 是 | String | 接口签名参数，值与 `usersig` 一致 |
+| `voice_id` | string | 取 URL | 流唯一标识（≤128 字符），与 URL 一致或省略 |
+| `engine_model_type` | string | `16k_zh_en` | 引擎模型 |
+| `language` | string | 空 | 识别语言（`zh`/`en`/`ja`…），空=自动检测 |
+| `voice_format` | int | `1` | 音频格式：`1`pcm/`4`speex/`6`silk/`8`mp3/`10`opus/`11`ogg/`12`wav/`14`m4a/`16`aac |
+| `input_sample_rate` | int | 不传 | 仅 `8000`：声明 8k PCM 输入，配 16k 引擎升采样 |
+| `needvad` | int | 引擎相关 | `0` 关 / `1` 开 VAD |
+| `vad_silence_time` | int | `800` | 断句静音阈值（ms），`needvad=1` 时范围 240~2000 |
+| `vad_level` | int | `1` | VAD 场景档：`0` 高召回 / `1` 远场过滤 |
+| `noise_threshold` | float | 不传 | 噪声阈值 `0`~`4`，设置后覆盖 `vad_level` 档 |
+| `max_speak_time` | int | `60000` | 强制断句时长（ms），范围 5000~90000 |
+| `filter_dirty` | int | `0` | 脏词：`0` 不过滤 / `1` 过滤 / `2` 替换为 * |
+| `filter_modal` | int | `0` | 语气词：`0` 不过滤 / `1` 部分 / `2` 严格 |
+| `filter_punc` | int | `0` | 句末标点：`0` 不过滤 / `1` 过滤 |
+| `filter_empty_result` | int | `1` | 空结果：`0` 下发 / `1` 不下发 |
+| `convert_num_mode` | int | `1` | 数字转换：`0` 不转 / `1` 智能 / `3` 数学 |
+| `word_info` | int | `0` | 词级时间戳：`0` 关 / `1` 开 / `2` 含标点 / `100` 字幕模式 |
+| `word_with_space` | int | `0` | 英文单词间空格输出 |
+| `hotword_id` | string | 空 | 热词表 ID（SDKAppID 维度） |
+| `hotword_list` | string | 空 | 临时热词：`词\|权重` 逗号分隔，词 ≤30 字符，权重 1~11 或 100 |
+| `speaker_diarization` | int | `0` | 说话人分离：`0` 关 / `1` 匿名聚类 / `3` 声纹角色认证 |
+| `speaker_number` | int | `0` | 说话人数量提示，`0` 自动检测 |
+| `voiceprint_ids` | []string | 空 | 已注册声纹 ID（仅 `speaker_diarization=3`） |
+| `speaker_roles` | []object | 空 | 临时声纹：`[{"audio_url":"...","role_name":"..."}]`（仅模式 3），`role_name` 会回显到结果 |
+| `context` | object | 空 | 识别上下文：`{"text":"背景文本","terms":["术语"],"general":[{"key":"domain","value":"Meeting"}]}` |
 
-### 实时识别响应
+> `context` 消费方式与引擎能力相关：大模型类引擎可用 `text`/`terms`/`general`，传统引擎仅把 `terms` 降级为热词。`speaker_diarization=1/3` 时服务端会强制开启 VAD 并调整 `word_info`。
+
+### 在线响应
+
+下行消息结构与 v2 完全一致（`code` / `message` / `voice_id` / `message_id` / `result` / `final`）：
 
 | 字段 | 类型 | 说明 |
 |------|------|------|
@@ -211,216 +140,182 @@ main().catch(console.error);
 | `result.voice_text_str` | String | 当前结果文本 |
 | `result.word_size` / `word_list` | Integer / Array | 词级（字级）时间戳，需 `word_info != 0` |
 | `result.speaker_segments` | Array | 说话人分段，开启说话人分离后返回 |
-| `result.language` | String | 识别语言（引擎上报时） |
+| `result.language` / `language_b47` | String | 识别语言（引擎上报时） |
 | `result.finish_silence_ms` | Integer | 触发断句的尾部静音时长（ms） |
 | `result.last_token_runtime_ms` | Integer | 末字服务端解码耗时（ms） |
 
-### 说话人分离（实时）
+说话人分离开启后，归属通过 `result.speaker_segments[]`（推荐）与 `result.word_list[].speaker_id`（需 `word_info != 0`）返回；`speaker_id` 从 1 开始编号，`-1` 未知。`speaker_segments[]` 含 `speaker_id` / `speaker_name`（模式 3 命中声纹时）/ `start_time` / `end_time` / `text` / `word_start` / `word_end` / `stable_flag`。
 
-开启 `speaker_diarization` 后，说话人归属通过两个入口返回：
+### 一句话识别 /v3/transcribe
 
-- `result.speaker_segments[]`：**推荐入口**。一个 `result` 可能包含多个说话人，句子级归属天然有歧义，因此协议按说话人切段返回。`len(speaker_segments) == 1` 即为单说话人句。
-- `result.word_list[].speaker_id`：字级归属，需同时设置 `word_info != 0`。
+`params` 字段：
 
-`speaker_id` 语义：会话内有效，从 `1` 开始编号，`-1` 表示未知，`0` 为保留值。
+| 参数 | 类型 | 必填 | 说明 |
+|------|------|------|------|
+| `engine_model_type` | string | 是 | 引擎模型 |
+| `source_type` | int | 是 | `0` URL 上传 / `1` 本地数据（base64） |
+| `voice_format` | string | 是 | 音频格式：`wav`、`pcm`、`ogg-opus`、`mp3`、`m4a` |
+| `url` | string | 条件 | 音频 URL（`source_type=0` 必填） |
+| `data` | string | 条件 | base64 音频数据（`source_type=1` 必填） |
+| `data_len` | int | 条件 | 音频数据原始长度（`source_type=1` 必填） |
+| `word_info` | int | 否 | 词级时间：`0` 关 / `1` 开 / `2` 含标点 |
+| `filter_dirty` / `filter_modal` / `filter_punc` | int | 否 | 过滤类 |
+| `convert_num_mode` | int | 否 | 数字转换：`0` 不转 / `1` 智能 / `3` 数学 |
+| `hotword_id` / `hotword_list` | string | 否 | 热词 |
+| `customization_id` | string | 否 | 自学习模型 ID |
+| `input_sample_rate` | int | 否 | PCM 输入采样率（仅 8000，配 16k 引擎升采样） |
+| `needvad` / `vad_silence_time` | int | 否 | 三态：不传走默认 |
+| `language` | string | 否 | 指定识别语言，留空自动检测 |
+| `speaker_diarization` / `speaker_number` | int | 否 | 说话人分离 |
+| `context` | object | 否 | 识别上下文（结构同在线） |
 
-`speaker_segments[]` 字段：
+**限制**：音频时长 ≤ 60s，文件大小 ≤ 3MB。
 
-| 字段 | 类型 | 说明 |
-|------|------|------|
-| `speaker_id` | Integer | 说话人编号 |
-| `speaker_name` | String | 角色名，仅 `speaker_diarization=3` 命中注册声纹时返回，等于请求侧 `RoleName` |
-| `start_time` / `end_time` | Integer | 该分段起止时间（ms） |
-| `text` | String | 该分段文本 |
-| `word_start` / `word_end` | Integer | 对应 `word_list` 的闭区间下标，即 `word_list[word_start:word_end+1]`；`word_info=0` 时不返回 |
-| `stable_flag` | Integer | 该分段是否稳定：`1` 稳定，`0` 非稳定 |
+响应（`TranscribeResponse`）：`code` / `message` / `request_id` / `result`（识别文本）/ `audio_duration`（ms）/ `language` / `languageB47` / `word_size` / `word_list[]`（含 `word` / `start_time` / `end_time`，ms）。
 
-Node.js 用法示例：
+### 录音文件识别 /v3/create_transcription
+
+异步任务：创建返回 `transcription_id`（24 小时有效），再用任务查询接口轮询。请求侧字段（`CreateTranscriptionRequest`）：`engineModelType` / `channelNum` / `resTextFormat` / `sourceType` / `url`（≤12h，≤1GB）/ `data`+`dataLen`（≤5MB）/ `audioUrls`（分布式录音：`[{index:0,url:"...",label:"..."}]`，须 `sourceType=0` 且 `url`/`data` 为空）/ `callbackUrl` / `speakerDiarization` / `speakerNumber` / `voiceprintIds` / `speakerRoles`（`SpeakerRole{roleName,audioUrl}`）/ `hotwordId` / `hotwordList` / `customizationId` / `keywordLibIdList` / `replaceTextId` / `convertNumMode` / `filterDirty` / `filterPunc` / `filterModal` / `sentenceMaxLength` / `extra` / `vadSilenceMs` / `vadLevel` / `noiseThreshold`（`0` 是合法取值，用 `undefined` 区分未设置）/ `language` / `context`。
+
+响应：`{"code":0,"message":"success","request_id":"...","transcription_id":"..."}`。
+
+配置了 `callbackUrl` 时，任务完成后服务端以 `application/x-www-form-urlencoded` POST 回调，字段：`code` / `message` / `request_id`（创建时原值）/ `transcription_id` / `text` / `audio_duration`（秒）/ `audio_url` / `result_detail`（JSON 字符串）。
+
+### 任务查询 /v3/describe_transcription
+
+`params` 仅一个字段：`transcription_id`（与 v1 `RecTaskId` 不通用）。
+
+响应（`TranscriptionStatus`）：`code` / `message` / `requestId` / `transcriptionId` / `status`（`0` 排队 / `1` 处理中 / `2` 成功 / `3` 失败）/ `status_str` / `progress` / `audio_duration`（秒）/ `result` / `result_detail[]` / `error_msg`。
+
+`resultDetail[]`（`SentenceDetail`）：`final_sentence` / `slice_sentence` / `written_text` / `start_ms` / `end_ms` / `words_num` / `words[]`（`word` / `start_time` / `end_time`）/ `speech_speed` / `speaker_id` / `channel_id`（双声道：1=左、2=右）/ `speaker_role_name` / `silence_time` / `language` / `language_b47`。
+
+### 错误码
+
+| code | 说明 | 常见触发 |
+|------|------|----------|
+| `4000` | 音频发送过多 | 1 秒内最多发送 3 秒音频 |
+| `4001` | 参数不合法 | params 校验失败 / `EnableV3Route` 未开启 / `voice_id` 冲突 |
+| `4002` | 鉴权失败 | `auth` 缺失 / `usersig` 验签不通过 / 查询他人任务 |
+| `4003` | 服务未开通 | 调度拒绝 |
+| `4006` | 并发超限 | 账号并发或连接数超限 |
+| `4007` | 音频解码失败 | 音频与 `voice_format` 不符 |
+| `4008` | 超时 | 在线 15s 未发音频 / 首帧 3s 超时 |
+| `4010` | 未知文本消息 | 首帧 JSON 非法 / `type` 非 `start` |
+| `5000`/`5001`/`5002` | 服务端内部错误 | 无可用机器 / 调度失败，可重试 |
+
+离线接口的 HTTP 状态码与 `code` 组合：参数错误 `400`、鉴权失败 **`200`**、灰度未开 `404`、并发超限 `429`、body 过大 `413`、调度失败 `503`——**一律以 body 的 `code` 为准**。
+
+## 安装
+
+```bash
+npm install trtc-asr
+```
+
+**要求**：Node.js >= 16
+
+## 快速开始
+
+### 实时语音识别
 
 ```typescript
 import {
-  SpeechRecognizer,
+  v3,
   SpeechRecognitionListener,
-  SPEAKER_DIARIZATION_CLUSTER,
-  SpeakerRole,
+  SpeechRecognitionResponse,
 } from "trtc-asr";
+import * as fs from "fs";
 
-const recognizer = new SpeechRecognizer(credential, "16k_zh", listener);
-recognizer.setWordInfo(1);                                      // 需要字级说话人时开启
-recognizer.setSpeakerDiarization(SPEAKER_DIARIZATION_CLUSTER);  // 1：匿名聚类
-
-// 声纹角色认证（返回角色名）：
-// recognizer.setSpeakerDiarization(SPEAKER_DIARIZATION_VOICEPRINT); // 3
-// recognizer.setSpeakerRoles([{ roleName: "teacher", audioUrl: "https://example.com/teacher.wav" }]);
-// recognizer.setVoiceprintIds(["vp-1"]);  // 已注册声纹
-// recognizer.setSpeakerNumber(2);         // 0 = 自动检测；两种分离模式都生效
-
-// 回调里读取：
-const listener: SpeechRecognitionListener = {
-  // ...
-  onSentenceEnd(resp) {
-    for (const seg of resp.result.speaker_segments ?? []) {
-      const name = seg.speaker_name || `spk${seg.speaker_id}`; // speaker_diarization=3 才有名字
-      console.log(`[${name}] ${seg.text}`);
-    }
+// 只需实现关心的回调；其余事件可以省略。listener 类型与 v2 相同
+// （下行消息结构两版一致）。
+const listener: v3.SpeechRecognitionListener = {
+  onSentenceEnd(resp: SpeechRecognitionResponse) {
+    console.log(`Sentence end: ${resp.result?.voice_text_str}`);
+  },
+  onFail(resp, error) {
+    console.error(`Failed: ${error}`); // ASRError，code 即服务端错误码
   },
 };
+
+async function main() {
+  // 1. 创建凭证（第一个参数是 SDKAppID；v3 不需要腾讯云 AppID）
+  const credential = v3.newCredential(1400000000, "your-sdk-secret-key");
+  // credential.setSite(SITE_INTL); // 国际站；不调用则走国内站
+
+  // 2. 创建识别器
+  const recognizer = new v3.SpeechRecognizer(credential, "16k_zh_en", listener);
+
+  // 3. 启动识别（同步等待服务端 ack；鉴权/参数错误在这里抛出）
+  await recognizer.start();
+
+  // 4. 发送音频数据
+  const fileData = fs.readFileSync("audio.pcm");
+  const SLICE_SIZE = 6400; // 200ms of 16kHz 16bit mono PCM
+  for (let offset = 0; offset < fileData.length; offset += SLICE_SIZE) {
+    await recognizer.write(Buffer.from(fileData.subarray(offset, offset + SLICE_SIZE)));
+    await new Promise((resolve) => setTimeout(resolve, 200)); // 模拟实时
+  }
+
+  // 5. 停止识别（发送 {"type":"end"} 并等待 final）
+  await recognizer.stop();
+}
+
+main().catch(console.error);
 ```
 
-### VAD 调优（noise_threshold / vad_level）
+### 一句话识别
 
-| 方法 | 取值 | 说明 |
-|------|------|------|
-| `setVadLevel(level)` | `0` / `1` | `0` 高召回，`1` 远场过滤（服务端默认） |
-| `setNoiseThreshold(v)` | `0.0` - `4.0` | 噪声抑制微调，值越大抑制越强、召回越低；设置后覆盖 `vadLevel` 档位 |
-| `setVadSilenceTime(ms)` | 240 - 2000 | 静音断句阈值 |
+```typescript
+import { v3 } from "trtc-asr";
+import * as fs from "fs";
 
-两者都是三态语义：**只有显式调用 setter 才会下发**，因此显式传 `0` 与「不配置」可以区分（服务端 `vad_level` 默认是 `1`）。超出范围会在 `start()` 阶段本地报错，不会浪费一次连接。
+async function main() {
+  const credential = v3.newCredential(1400000000, "your-sdk-secret-key");
+  const recognizer = new v3.SentenceRecognizer(credential);
 
-### 一句话识别接口
+  const data = fs.readFileSync("audio.pcm");
+  const result = await recognizer.recognizeData(Buffer.from(data), "pcm", "16k_zh_en");
 
-- **请求地址**：
-  - 国内站：`https://asr.cloud-rtc.com/v1/SentenceRecognition?{请求参数}`
-  - 国际站：`https://asr-intl.cloud-rtc.com/v1/SentenceRecognition?{请求参数}`
-- **请求方法**：HTTP POST，Content-Type 为 `application/json; charset=utf-8`
+  console.log(`识别结果: ${result.result}`);
+  console.log(`音频时长: ${result.audioDuration} ms`);
+}
 
-#### 鉴权方式
+main().catch(console.error);
+```
 
-HTTP 接口的鉴权信息携带在请求 Header 中（与流式不同，不走 query）：
+### 录音文件识别
 
-| Header | 说明 |
-|--------|------|
-| `X-TRTC-SdkAppId` | TRTC 应用 ID，从 TRTC 控制台获取（[国内站](https://console.cloud.tencent.com/trtc/app) / [国际站](https://console.trtc.io)） |
-| `X-TRTC-UserSig` | TRTC 签名，UserID 等于 URL 参数中的 `RequestId`（SDK 内部自动生成） |
+```typescript
+import { v3 } from "trtc-asr";
 
-#### URL 请求参数
+async function main() {
+  const credential = v3.newCredential(1400000000, "your-sdk-secret-key");
+  const recognizer = new v3.FileRecognizer(credential);
 
-| 参数 | 必填 | 类型 | 说明 |
-|------|------|------|------|
-| `AppId` | 是 | String | 腾讯云 APPID |
-| `Secretid` | 是 | String | SDK 内部自动用 APPID 填充 |
-| `RequestId` | 是 | String | 全局请求唯一 ID（UUID），用于生成 UserSig |
-| `Timestamp` | 是 | Integer | 当前 UNIX 时间戳（秒） |
+  const taskId = await recognizer.createTaskFromURL(
+    "https://example.com/audio.wav",
+    "16k_zh_en",
+  );
+  const status = await recognizer.waitForResult(taskId); // 轮询直至完成
 
-#### 请求体参数（JSON）
+  console.log(`识别结果: ${status.result}`);
+  console.log(`音频时长: ${status.audioDuration.toFixed(2)} s`);
+}
 
-| 参数 | 必填 | 类型 | 说明 |
-|------|------|------|------|
-| `EngSerViceType` | 是 | String | 引擎类型：`16k_zh`(中文)、`16k_zh_en`(中英文) |
-| `SourceType` | 是 | Integer | `0` URL 上传、`1` 本地数据（base64） |
-| `VoiceFormat` | 是 | String | 音频格式：`wav`、`pcm`、`ogg-opus`、`mp3`、`m4a` |
-| `Data` | 条件 | String | base64 编码的音频数据（SourceType=1 时必填） |
-| `DataLen` | 条件 | Integer | 音频数据原始长度（SourceType=1 时必填） |
-| `Url` | 条件 | String | 音频 URL（SourceType=0 时必填） |
-| `WordInfo` | 否 | Integer | 词级时间：`0` 不显示、`1` 显示、`2` 含标点 |
-| `FilterDirty` | 否 | Integer | 脏词过滤：`0` 不过滤、`1` 过滤、`2` 替换 |
-| `FilterModal` | 否 | Integer | 语气词过滤：`0` 不过滤、`1` 部分、`2` 严格 |
-| `FilterPunc` | 否 | Integer | 标点过滤：`0` 不过滤、`2` 过滤全部 |
-| `ConvertNumMode` | 否 | Integer | 数字转换：`0` 不转、`1` 智能转换（默认） |
-| `HotwordId` | 否 | String | 热词表 ID |
-| `HotwordList` | 否 | String | 临时热词列表 |
-| `CustomizationId` | 否 | String | 自学习模型 ID |
-| `InputSampleRate` | 否 | Integer | PCM 输入采样率（仅 PCM 格式，支持 8000） |
-| `Language` | 否 | String | 指定识别语言，留空为自动检测 |
-
-**限制**：音频时长 ≤ 60s，文件大小 ≤ 3MB，单账号并发 ≤ 30次/秒
-
-### 录音文件识别接口
-
-录音文件识别是异步接口，适用于较长音频（≤12h）。工作流程为：提交任务 → 轮询结果。
-
-#### 创建任务：CreateRecTask
-
-- **请求地址**：
-  - 国内站：`https://asr.cloud-rtc.com/v1/CreateRecTask?{请求参数}`
-  - 国际站：`https://asr-intl.cloud-rtc.com/v1/CreateRecTask?{请求参数}`
-- **请求方法**：HTTP POST，Content-Type 为 `application/json; charset=utf-8`
-- **并发限制**：默认 20次/秒
-
-鉴权方式（Header 中的 `X-TRTC-SdkAppId` / `X-TRTC-UserSig`）与 URL 请求参数（AppId、Secretid、RequestId、Timestamp）均与一句话识别相同。
-
-##### 请求体参数（JSON）
-
-| 参数 | 必填 | 类型 | 说明 |
-|------|------|------|------|
-| `EngineModelType` | 是 | String | 引擎类型：`16k_zh`(中文)、`16k_zh_en`(中英文) |
-| `ChannelNum` | 是 | Integer | 声道数：`1` 单声道；`2` 双声道（8k 电话，自动区分说话人并返回 `ChannelId`：1=左/2=右） |
-| `ResTextFormat` | 是 | Integer | 结果格式：`0` 基础、`1` 含词级时间、`2` 含标点时间 |
-| `SourceType` | 是 | Integer | `0` URL 上传、`1` 本地数据（base64） |
-| `Url` | 条件 | String | 音频 URL（SourceType=0，时长≤12h，大小≤1GB） |
-| `Data` | 条件 | String | base64 编码音频数据（SourceType=1，大小≤5MB） |
-| `DataLen` | 条件 | Integer | 音频数据原始长度（SourceType=1） |
-| `CallbackUrl` | 否 | String | 回调 URL，任务完成后 POST 结果 |
-| `FilterDirty` | 否 | Integer | 脏词过滤 |
-| `FilterModal` | 否 | Integer | 语气词过滤 |
-| `FilterPunc` | 否 | Integer | 标点过滤 |
-| `ConvertNumMode` | 否 | Integer | 数字转换 |
-| `HotwordId` | 否 | String | 热词表 ID |
-| `HotwordList` | 否 | String | 临时热词列表 |
-| `CustomizationId` | 否 | String | 自学习模型 ID |
-| `ReplaceTextId` | 否 | String | 替换词表 ID |
-| `Language` | 否 | String | 指定识别语言，留空为自动检测 |
-| `SpeakerDiarization` | 否 | Integer | 说话人分离：`0` 关闭（默认），`1` 匿名聚类，`3` 声纹角色认证 |
-| `SpeakerNumber` | 否 | Integer | 说话人数量提示，`0` 自动检测 |
-| `SpeakerRoles` | 否 | Array | 临时声纹角色，元素含 `RoleName` 与 `AudioUrl`，仅 `SpeakerDiarization=3` |
-| `VoiceprintIds` | 否 | Array | 已注册声纹 ID 列表，仅 `SpeakerDiarization=3` |
-| `VadSilenceMs` | 否 | Integer | 静音断句阈值（ms） |
-| `VadLevel` | 否 | Integer | VAD 场景档：`0` 高召回（默认），`1` 远场过滤 |
-| `NoiseThreshold` | 否 | Float | VAD 噪声微调，范围 `0.0-4.0`；设置后覆盖 `VadLevel` 档位 |
-
-> `VadLevel` / `NoiseThreshold` 在请求里是可选字段（`vadLevel` / `noiseThreshold`），因为 `0` 是合法取值，用 `undefined`（不设置该字段）才能区分「显式传 0」与「不配置」。
-
-##### 响应
-
-返回 `RecTaskId`（任务 ID），用于后续查询。任务有效期 24 小时。
-
-#### 查询结果：DescribeTaskStatus
-
-- **请求地址**：
-  - 国内站：`https://asr.cloud-rtc.com/v1/DescribeTaskStatus?{请求参数}`
-  - 国际站：`https://asr-intl.cloud-rtc.com/v1/DescribeTaskStatus?{请求参数}`
-- **请求方法**：HTTP POST
-- **并发限制**：默认 50次/秒
-
-##### 请求体参数（JSON）
-
-| 参数 | 必填 | 类型 | 说明 |
-|------|------|------|------|
-| `RecTaskId` | 是 | String | CreateRecTask 返回的任务 ID |
-
-##### 响应（TaskStatus）
-
-| 字段 | 类型 | 说明 |
-|------|------|------|
-| `RecTaskId` | String | 任务 ID |
-| `Status` | Integer | `0` 等待、`1` 执行中、`2` 成功、`3` 失败 |
-| `StatusStr` | String | waiting / executing / success / failed |
-| `Progress` | Integer | 处理进度（0-100） |
-| `Result` | String | 识别结果文本 |
-| `ErrorMsg` | String | 失败原因 |
-| `ResultDetail` | Array | 句级详细结果（含词级时间偏移） |
-| `AudioDuration` | Float | 音频时长（秒） |
-
-`ResultDetail[]` 中与说话人相关的字段：
-
-| 字段 | 类型 | 说明 |
-|------|------|------|
-| `SpeakerId` | Integer | 说话人编号，开启 `SpeakerDiarization` 后返回 |
-| `SpeakerRoleName` | String | 角色名，`SpeakerDiarization=3` 命中注册声纹时返回 |
-| `ChannelId` | Integer | 双声道（`ChannelNum=2`）时的声道编号：1=左、2=右；此场景下优先用它区分说话人 |
-| `Language` | String | 该句识别语言（引擎上报时） |
+main().catch(console.error);
+```
 
 ## 凭证获取
 
 | 参数 | 国内站 | 国际站 | 说明 |
 |------|--------|--------|------|
-| `appId` | [CAM 密钥管理](https://console.cloud.tencent.com/cam/capi) | Tencentcloud 控制台「账号信息」（trtc.io 不显示） | 腾讯云账号 APPID，用于 URL 路径 |
 | `sdkAppId` | [TRTC 控制台](https://console.cloud.tencent.com/trtc/app) > 应用管理 | [console.trtc.io](https://console.trtc.io) > 应用详情 | TRTC 应用 ID |
 | `secretKey` | [TRTC 控制台](https://console.cloud.tencent.com/trtc/app) > 应用概览 > SDK密钥 | [console.trtc.io](https://console.trtc.io) > 应用详情 | 用于生成 UserSig，不会传输到网络 |
 
+> v2 客户端需要的腾讯云 `AppID`（CAM 密钥管理 / 国际站账号信息页）在 v3 下不再需要。
+
 ## 配置项
 
-实时语音识别（`SpeechRecognizer`）：
+实时语音识别（`v3.SpeechRecognizer`），setter 命名与 v2 保持一致：
 
 | 方法 | 说明 | 默认值 |
 |------|------|--------|
@@ -429,13 +324,12 @@ HTTP 接口的鉴权信息携带在请求 Header 中（与流式不同，不走 
 | `setConvertNumMode(m)` | 数字转换模式 | 1 (智能) |
 | `setHotwordId(id)` | 热词表 ID | - |
 | `setHotwordList(list)` | 临时热词列表 `词\|权重,...` | - |
-| `setCustomizationId(id)` | 自学习模型 ID | - |
-| `setReplaceTextId(id)` | 替换词表 ID | - |
 | `setFilterDirty(m)` | 脏词过滤 | 0 (关闭) |
 | `setFilterModal(m)` | 语气词过滤 | 0 (关闭) |
 | `setFilterPunc(m)` | 句号过滤 | 0 (关闭) |
 | `setFilterEmptyResult(m)` | 空结果是否回调 | 1 (不回调) |
 | `setWordInfo(m)` | 词级/字级时间 | 0 (关闭) |
+| `setWordWithSpace(m)` | 英文单词间空格 | 0 (关闭) |
 | `setVadSilenceTime(ms)` | VAD 静音阈值（240-2000） | 800ms |
 | `setVadLevel(level)` | VAD 场景档：0 高召回 / 1 远场过滤 | 1 |
 | `setNoiseThreshold(v)` | VAD 噪声微调（0.0-4.0），覆盖场景档 | 未设置 |
@@ -443,10 +337,13 @@ HTTP 接口的鉴权信息携带在请求 Header 中（与流式不同，不走 
 | `setInputSampleRate(r)` | 输入 PCM 采样率，仅 8000 | - |
 | `setSpeakerDiarization(m)` | 说话人分离：0 关 / 1 聚类 / 3 声纹角色 | 0 (关闭) |
 | `setSpeakerNumber(n)` | 说话人数量提示（分离开启时生效） | 0 (自动) |
-| `setSpeakerRoles(roles)` | 临时声纹角色（仅模式 3） | - |
+| `setSpeakerRoles(roles)` | 临时声纹角色（仅模式 3，`v3.SpeakerRole{roleName,audioUrl}`） | - |
 | `setVoiceprintIds(ids)` | 已注册声纹 ID（仅模式 3） | - |
 | `setLanguage(lang)` | 指定识别语言 | 自动检测 |
 | `setVoiceId(id)` | 自定义 voice_id | 自动 UUID |
+| `setContext(ctx)` | 识别上下文（`v3.Context{text,terms,general}`） | - |
+
+> v3 在线不支持 v2 的 `customization_id` / `replace_text_id`（v3 协议未包含）。
 
 ## 引擎模型
 
@@ -460,41 +357,16 @@ HTTP 接口的鉴权信息携带在请求 Header 中（与流式不同，不走 
 
 完整示例请参见：
 
-- **实时语音识别**：[`examples/realtime-asr.ts`](./examples/realtime-asr.ts) — WebSocket 流式识别
-- **一句话识别**：[`examples/sentence-asr.ts`](./examples/sentence-asr.ts) — HTTP 短音频识别（≤60s）
-- **录音文件识别**：[`examples/file-asr.ts`](./examples/file-asr.ts) — 异步长音频识别
-
-运行示例：
+- **实时语音识别（v3）**：[`examples/v3-realtime-asr.ts`](./examples/v3-realtime-asr.ts)
+- **一句话识别（v3）**：[`examples/v3-sentence-asr.ts`](./examples/v3-sentence-asr.ts)
+- **录音文件识别（v3）**：[`examples/v3-file-asr.ts`](./examples/v3-file-asr.ts)
+- **实时语音识别（v2）**：[`examples/realtime-asr.ts`](./examples/realtime-asr.ts)
+- **一句话识别（v2）**：[`examples/sentence-asr.ts`](./examples/sentence-asr.ts)
+- **录音文件识别（v2）**：[`examples/file-asr.ts`](./examples/file-asr.ts)
 
 ```bash
-git clone https://github.com/Tencent-RTC/trtc-asr-sdk-nodejs.git
-cd trtc-asr-sdk-nodejs
 npm install
-
-# 实时语音识别
-npx ts-node examples/realtime-asr.ts -f examples/test.pcm
-
-# 一句话识别
-npx ts-node examples/sentence-asr.ts -f examples/test.pcm
-
-# 录音文件识别
-npx ts-node examples/file-asr.ts -f examples/test.wav
-
-# 说话人分离（实时：匿名聚类 + 字级说话人）
-npx ts-node examples/realtime-asr.ts -f examples/test.pcm --diarization 1 --word-info 1
-
-# 说话人分离（实时：声纹角色认证，返回角色名）
-npx ts-node examples/realtime-asr.ts -f examples/test.pcm --diarization 3 \
-  --roles "teacher=https://example.com/teacher.wav,student=https://example.com/student.wav"
-
-# VAD 调优（远场过滤 + 噪声阈值）
-npx ts-node examples/realtime-asr.ts -f examples/test.pcm --vad-level 1 --noise-threshold 1.5
-
-# 说话人分离（录音文件）
-npx ts-node examples/file-asr.ts -u https://example.com/call.wav --diarization 1
-
-# 查看所有选项
-npx ts-node examples/realtime-asr.ts --help
+npx ts-node examples/v3-realtime-asr.ts -f examples/test.pcm
 ```
 
 ## 项目结构
@@ -502,58 +374,46 @@ npx ts-node examples/realtime-asr.ts --help
 ```
 trtc-asr-sdk-nodejs/
 ├── src/                            # TypeScript 源码
-│   ├── index.ts                    # 包入口，统一导出
-│   ├── credential.ts               # 凭证管理（APPID + SDKAppID + SDK密钥）
+│   ├── index.ts                    # 包入口（顶层 = v2/v1，v3 命名空间导出）
+│   ├── credential.ts               # 凭证管理（v2/v3 共用）
 │   ├── usersig.ts                  # TRTC UserSig 生成
-│   ├── signature.ts                # URL 请求参数构建
-│   ├── speech-recognizer.ts        # 实时语音识别器（WebSocket）
-│   ├── params.ts                   # 说话人分离 / VAD 调优参数校验
-│   ├── sentence-recognizer.ts      # 一句话识别器（HTTP）
-│   ├── file-recognizer.ts          # 录音文件识别器（异步 HTTP）
-│   └── errors.ts                   # 错误定义
+│   ├── signature.ts                # v2 URL 请求参数构建
+│   ├── speech-recognizer.ts        # v2 实时语音识别器
+│   ├── sentence-recognizer.ts      # v2 一句话识别器
+│   ├── file-recognizer.ts          # v2 录音文件识别器
+│   ├── errors.ts                   # 错误定义（共用）
+│   └── v3/                         # v3 协议客户端（独立实现）
+│       ├── wire.ts                 # wire 类型（auth/params/扁平响应，全 snake_case）
+│       ├── speech-recognizer.ts    # /asr/v3 首帧协议
+│       ├── sentence-recognizer.ts  # /v3/transcribe
+│       └── file-recognizer.ts      # /v3/create_transcription + describe
+├── docs/
+│   └── v2_protocol.md              # v2 / v1 旧版协议与客户端文档
 ├── examples/                       # 示例代码
-│   ├── test.pcm                    # 测试音频文件
-│   ├── realtime-asr.ts             # 实时语音识别示例
-│   ├── sentence-asr.ts             # 一句话识别示例
-│   └── file-asr.ts                 # 录音文件识别示例
-├── tests/                          # 测试
-│   ├── signature.test.ts           # 签名参数测试
-│   ├── signature-speaker.test.ts   # 说话人分离 / VAD 调优参数测试
-│   ├── params.test.ts              # 参数校验测试
-│   ├── diarization.test.ts         # 说话人分离端到端测试
-│   ├── recognizer.lifecycle.test.ts # 生命周期健壮性测试
-│   ├── sentence-recognizer.test.ts # 一句话识别测试
-│   └── file-recognizer.test.ts     # 录音文件识别测试
+├── tests/                          # 测试（含 v3 mock server 端到端 wire 测试）
 ├── dist/                           # 编译输出（npm 发布内容）
-├── package.json                    # 包定义
-├── tsconfig.json                   # TypeScript 配置
-└── .gitignore
+├── package.json
+└── README.md
 ```
 
 ## 常见问题
 
-### APPID 和 SDKAppID 有什么区别？
+### v3 和 v2 怎么选？
 
-- **APPID**（如 `13xxxxxxxx`）：腾讯云账号级别的 ID，用于 WebSocket URL 路径；国内站从 [CAM 密钥管理](https://console.cloud.tencent.com/cam/capi) 获取，国际站见 Tencentcloud 控制台「账号信息」
-- **SDKAppID**（如 `14xxxxxxxx`）：TRTC 应用级别的 ID，用于鉴权（SDK 自动填入 URL query 的 `sdkappid`）；国内站从 [TRTC 控制台](https://console.cloud.tencent.com/trtc/app) 获取，国际站从 [console.trtc.io](https://console.trtc.io) 获取
+- **新接入**：推荐 v3（`import { v3 } from "trtc-asr"`）——只需 SDKAppID + SecretKey，协议更干净（auth/params 分块、扁平响应、数字错误码），`start()` 同步返回鉴权/参数错误。前提是服务端已为您的 SDKAppID 开启 `EnableV3Route` 灰度。
+- **存量**：v2（包顶层导出）继续全量可用，无需任何改动。
 
-### UserSig 是什么？
+### v3 报 4001 / 404 是什么问题？
 
-UserSig 是基于 SDKAppID 和 SDK 密钥计算的签名，用于 TRTC 服务鉴权。SDK 会自动生成，无需手动计算。详见[鉴权文档](https://cloud.tencent.com/document/product/647/17275)。
+最常见原因是服务端 `EnableV3Route` 灰度未为您的 SDKAppID 开启：在线会得到 `4001 v3 interface not enabled`，离线会得到 HTTP 404。请联系服务团队开启。
 
-### signature 参数怎么计算？
+### v1 的任务 ID 能用 v3 接口查询吗？
 
-根据协议，`signature` 与 `usersig` 的值都等于 UserSig，SDK 内部自动处理，用户无需关心。
+不能。v1 `RecTaskId` 与 v3 `transcription_id` 是两套任务空间，互不通用。
 
-### 支持哪些音频格式？
+### 错误码怎么看？
 
-- **实时语音识别**：支持 PCM 格式（`voiceFormat=1`），建议 16kHz、16bit、单声道
-- **一句话识别**：支持 wav、pcm、ogg-opus、mp3、m4a，音频时长 ≤ 60s，文件 ≤ 3MB
-- **录音文件识别**：支持 wav、ogg-opus、mp3、m4a，本地文件 ≤ 5MB，URL ≤ 1GB / ≤ 12h
-
-### TypeScript 和 JavaScript 都能用吗？
-
-可以。SDK 使用 TypeScript 编写，编译后发布包含 `.js` 和 `.d.ts` 文件，TypeScript 和 JavaScript 项目均可使用。
+SDK 本地错误码是 10xx（如 `1001` 参数错误）；服务端返回的是 4xxx/5xxx（如 `4002` 鉴权失败）。`ASRError.code` 的值域不冲突，可直接按区间判断来源。
 
 ## License
 

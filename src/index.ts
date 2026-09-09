@@ -40,3 +40,7 @@ export {
   TaskStatusCode,
   FILE_ENDPOINT,
 } from "./file-recognizer";
+
+// The v3 protocol client lives in a separate namespace: the v2/v1 exports
+// above stay byte-for-byte unchanged, and v3 users import from this module.
+export * as v3 from "./v3";
