@@ -84,7 +84,11 @@ describe("sdkinfo", () => {
   test("reports the fixed language, type and version", () => {
     expect(SDK_LANGUAGE).toBe("nodejs");
     expect(SDK_TYPE).toBe("server");
-    expect(SDK_VERSION).toBe("1.0.0");
+    // Version is derived from package.json (the single source of truth), so
+    // releases bump it in one place and this assertion stays in sync.
+    const pkgVersion = require("../package.json").version as string;
+    expect(SDK_VERSION).toBe(pkgVersion);
+    expect(SDK_VERSION).toMatch(/^\d+\.\d+\.\d+$/);
   });
 
   test("normalizes the current platform to the service vocabulary", () => {
