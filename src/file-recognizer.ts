@@ -105,7 +105,11 @@ export interface CreateRecTaskRequest {
   noiseThreshold?: number;
 }
 
-/** Word-level timing within a sentence. */
+/**
+ * Word-level timing within a sentence. Offsets are milliseconds relative to
+ * the start of the audio; on the wire the server spells them StartTime /
+ * EndTime, while OffsetStartMs / OffsetEndMs is accepted as a fallback.
+ */
 export interface SentenceWords {
   word: string;
   offsetStartMs: number;
@@ -155,6 +159,17 @@ export interface TaskStatus {
   errorMsg: string;
   resultDetail: SentenceDetail[];
   audioDuration: number;
+}
+
+/**
+ * Read a word-level offset, accepting both wire spellings. The server returns
+ * StartTime / EndTime; the older OffsetStartMs / OffsetEndMs spelling is kept
+ * as a fallback. Explicit zeros are preserved.
+ */
+function pickOffset(w: any, primary: string, fallback: string): number {
+  const value =
+    w[primary] !== undefined && w[primary] !== null ? w[primary] : w[fallback];
+  return typeof value === "number" ? value : 0;
 }
 
 /** Async audio file recognition client using HTTP POST. */
@@ -487,8 +502,8 @@ export class FileRecognizer {
         wordsNum: sd.WordsNum || 0,
         words: (sd.Words || []).map((w: any) => ({
           word: w.Word || "",
-          offsetStartMs: w.OffsetStartMs || 0,
-          offsetEndMs: w.OffsetEndMs || 0,
+          offsetStartMs: pickOffset(w, "StartTime", "OffsetStartMs"),
+          offsetEndMs: pickOffset(w, "EndTime", "OffsetEndMs"),
         })),
         speechSpeed: sd.SpeechSpeed || 0,
         silenceTime: sd.SilenceTime || 0,

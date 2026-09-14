@@ -435,7 +435,7 @@ describe("FileRecognizer speaker diarization", () => {
               StartMs: 0,
               EndMs: 1200,
               WordsNum: 2,
-              Words: [{ Word: "你", OffsetStartMs: 0, OffsetEndMs: 120 }],
+              Words: [{ Word: "你", StartTime: 0, EndTime: 120 }],
               SpeakerId: 1,
               SpeakerRoleName: "teacher",
               Language: "zh",
@@ -463,8 +463,38 @@ describe("FileRecognizer speaker diarization", () => {
     expect(first.speakerRoleName).toBe("teacher");
     expect(first.language).toBe("zh");
 
+    // Word offsets come back as StartTime / EndTime on the wire.
+    expect(first.words[0].offsetStartMs).toBe(0);
+    expect(first.words[0].offsetEndMs).toBe(120);
+
     // Stereo recordings report the channel instead of a clustered speaker.
     expect(status.resultDetail[1].channelId).toBe(2);
+  });
+
+  test("accepts the OffsetStartMs / OffsetEndMs word spelling as a fallback", async () => {
+    mockFetchOnce({
+      Response: {
+        RequestId: "req-2",
+        Data: {
+          RecTaskId: "task-2",
+          Status: 2,
+          StatusStr: "success",
+          ResultDetail: [
+            {
+              FinalSentence: "你好",
+              Words: [{ Word: "你", OffsetStartMs: 120, OffsetEndMs: 640 }],
+            },
+          ],
+        },
+      },
+    });
+
+    const recognizer = new FileRecognizer(makeCredential());
+    const status = await recognizer.describeTaskStatus("task-2");
+
+    const word = status.resultDetail[0].words[0];
+    expect(word.offsetStartMs).toBe(120);
+    expect(word.offsetEndMs).toBe(640);
   });
 });
 
