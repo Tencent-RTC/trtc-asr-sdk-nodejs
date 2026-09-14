@@ -27,22 +27,39 @@ async function main() {
   }
   const args = process.argv.slice(2);
   let file = "examples/test.pcm";
-  let engine = "16k_zh_en";
+  let engine = "";
+  let lang = "";
   for (let i = 0; i < args.length; i++) {
     if (args[i] === "-f" && args[i + 1]) {
       file = args[i + 1];
+      i++;
+    } else if (args[i] === "--lang" && args[i + 1]) {
+      lang = args[i + 1];
       i++;
     } else if (!args[i].startsWith("-")) {
       engine = args[i];
     }
   }
 
+  if (!engine) {
+    console.error("error: engine argument is required (engine model type, e.g. bigmodel)");
+    process.exit(2);
+  }
+  // The bigmodel engine is best used with an explicit language; every other
+  // engine falls back to server-side detection unless --lang is given.
+  if (!lang && engine === "bigmodel") lang = "zh";
+
   // v3 credentials need only SDKAppID + SecretKey (no Tencent Cloud APPID).
   const credential = v3.newCredential(SDK_APP_ID, SECRET_KEY);
   const recognizer = new v3.SentenceRecognizer(credential);
 
   const data = fs.readFileSync(file);
-  const result = await recognizer.recognizeData(Buffer.from(data), "pcm", engine);
+  const result = await recognizer.recognizeDataWithOptions(Buffer.from(data), {
+    engine_model_type: engine,
+    voice_format: "pcm",
+    source_type: 1,
+    language: lang,
+  });
 
   console.log(`Result: ${result.result}`);
   console.log(`Duration: ${result.audio_duration} ms  RequestId: ${result.request_id}`);

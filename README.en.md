@@ -63,7 +63,7 @@ Within **3 seconds** of the WebSocket handshake, send one start frame:
 {
   "type": "start",
   "auth": {"sdkappid": "1400000001", "usersig": "eJw..."},
-  "params": {"engine_model_type": "16k_zh_en", "voice_format": 1, "needvad": 1}
+  "params": {"engine_model_type": "bigmodel", "language": "zh", "voice_format": 1, "needvad": 1}
 }
 ```
 
@@ -129,8 +129,8 @@ sequenceDiagram
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
 | `voice_id` | string | from URL | Stream ID (<=128 chars); same as the URL or omitted |
-| `engine_model_type` | string | `16k_zh_en` | Engine model |
-| `language` | string | empty | Language hint (`zh`, `en`, `ja`, …); empty = auto detect |
+| `engine_model_type` | string | **required** | Engine model; no default, must be provided. The examples pass `bigmodel` (recommended, with `language`) |
+| `language` | string | empty | Language hint (`zh`, `en`, `ja`, …); empty = auto detect. `bigmodel` is best used with an explicit value (e.g. `zh`) |
 | `voice_format` | int | `1` | Audio format: `1`pcm/`4`speex/`6`silk/`8`mp3/`10`opus/`11`ogg/`12`wav/`14`m4a/`16`aac |
 | `input_sample_rate` | int | — | Only `8000`: declare 8k PCM input for a 16k engine |
 | `needvad` | int | engine default | `0` off / `1` on |
@@ -182,7 +182,7 @@ With diarization on, speaker attribution comes through `result.speaker_segments[
 
 | Field | Type | Required | Description |
 |-------|------|----------|-------------|
-| `engine_model_type` | string | yes | Engine model |
+| `engine_model_type` | string | yes | Engine model, required; the examples pass `bigmodel` (recommended, with `language`) |
 | `source_type` | int | yes | `0` URL / `1` local data (base64) |
 | `voice_format` | string | yes | `wav`, `pcm`, `ogg-opus`, `mp3`, `m4a` |
 | `url` | string | conditional | Audio URL (required when `source_type=0`) |
@@ -267,7 +267,8 @@ async function main() {
   const credential = v3.newCredential(1400000000, "your-sdk-secret-key");
   // credential.setSite(SITE_INTL);  // international site
 
-  const recognizer = new v3.SpeechRecognizer(credential, "16k_zh_en", listener);
+  const recognizer = new v3.SpeechRecognizer(credential, "bigmodel", listener);
+  recognizer.setLanguage("zh"); // bigmodel works best with an explicit language
 
   // start() waits synchronously for the server ack; auth/param errors throw here.
   await recognizer.start();
@@ -295,7 +296,12 @@ const credential = v3.newCredential(1400000000, "your-sdk-secret-key");
 const recognizer = new v3.SentenceRecognizer(credential);
 
 const data = fs.readFileSync("audio.pcm");
-const result = await recognizer.recognizeData(Buffer.from(data), "pcm", "16k_zh_en");
+const result = await recognizer.recognizeDataWithOptions(Buffer.from(data), {
+  engine_model_type: "bigmodel",
+  voice_format: "pcm",
+  source_type: 1,
+  language: "zh",
+});
 
 console.log(`Result: ${result.result}`);
 console.log(`Duration: ${result.audio_duration} ms`);
@@ -309,7 +315,14 @@ import { v3 } from "trtc-asr";
 const credential = v3.newCredential(1400000000, "your-sdk-secret-key");
 const recognizer = new v3.FileRecognizer(credential);
 
-const taskId = await recognizer.createTaskFromURL("https://example.com/audio.wav", "16k_zh_en");
+const taskId = await recognizer.createTask({
+  engine_model_type: "bigmodel",
+  channel_num: 1,
+  res_text_format: 1,
+  source_type: 0,
+  url: "https://example.com/audio.wav",
+  language: "zh",
+});
 const status = await recognizer.waitForResult(taskId);
 
 console.log(`Result: ${status.result}`);
@@ -358,10 +371,12 @@ Realtime recognition (`v3.SpeechRecognizer`); setters mirror the v2 client:
 
 | Value | Description |
 |-------|-------------|
+| `bigmodel` | Large model engine, recommended; pair it with `language` (e.g. `zh`) |
 | `8k_zh` | Chinese, telephony |
-| `16k_zh` | Chinese, general (recommended) |
+| `16k_zh` | Chinese, general |
 | `16k_zh_en` | Chinese + English |
-| `bigmodel` | Large model engine (multi-language) |
+
+> For `bigmodel`, `language` is not just a hint: the server picks the backend model from it (`zh` routes to the self-developed large model, empty routes to the generic pipeline). The examples default to `bigmodel` + `zh`.
 
 ## Examples
 
@@ -375,7 +390,7 @@ Realtime recognition (`v3.SpeechRecognizer`); setters mirror the v2 client:
 ```bash
 npm install
 TRTC_ASR_SDK_APP_ID=... TRTC_ASR_SECRET_KEY=... \
-  npx ts-node examples/v3-realtime-asr.ts -f examples/test.pcm bigmodel
+  npx ts-node examples/v3-realtime-asr.ts -f examples/test.pcm -e bigmodel
 ```
 
 ## Project layout

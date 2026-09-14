@@ -88,13 +88,13 @@ async function main() {
 
   // 3. 从本地文件识别（自动 base64 编码）
   const data = fs.readFileSync("audio.pcm");
-  const result = await recognizer.recognizeData(Buffer.from(data), "pcm", "16k_zh_en");
+  const result = await recognizer.recognizeData(Buffer.from(data), "pcm", "bigmodel");
 
   console.log(`识别结果: ${result.result}`);
   console.log(`音频时长: ${result.audioDuration} ms`);
 
   // 或者从 URL 识别
-  // const result = await recognizer.recognizeURL("https://example.com/audio.wav", "wav", "16k_zh_en");
+  // const result = await recognizer.recognizeURL("https://example.com/audio.wav", "wav", "bigmodel");
 }
 
 main().catch(console.error);
@@ -119,7 +119,7 @@ async function main() {
 
   // 3. 提交识别任务（本地文件）
   const data = fs.readFileSync("audio.wav");
-  const taskId = await recognizer.createTaskFromData(Buffer.from(data), "16k_zh_en");
+  const taskId = await recognizer.createTaskFromData(Buffer.from(data), "bigmodel");
   console.log(`任务已提交: ${taskId}`);
 
   // 4. 轮询等待结果（默认 1 秒间隔，10 分钟超时）
@@ -129,7 +129,7 @@ async function main() {
   console.log(`音频时长: ${status.audioDuration.toFixed(2)} s`);
 
   // 或者从 URL 提交（支持更大文件，≤1GB / ≤12h）
-  // const taskId = await recognizer.createTaskFromURL("https://example.com/audio.wav", "16k_zh_en");
+  // const taskId = await recognizer.createTaskFromURL("https://example.com/audio.wav", "bigmodel");
 
   // 或者自定义轮询间隔（毫秒）
   // const status = await recognizer.waitForResultWithInterval(taskId, 2000, 1800000);
@@ -178,7 +178,7 @@ main().catch(console.error);
 | `timestamp` | 是 | Integer | 当前 UNIX 时间戳（秒） |
 | `expired` | 是 | Integer | 签名有效期截止时间戳，必须大于 timestamp |
 | `nonce` | 是 | Integer | 随机正整数，最长10位 |
-| `engine_model_type` | 是 | String | 引擎类型：`8k_zh`(中文电话)、`16k_zh`(中文通用)、`16k_zh_en`(中英文) |
+| `engine_model_type` | 是 | String | 引擎类型：`bigmodel`(大模型，推荐，配 `language`)、`8k_zh`(中文电话)、`16k_zh`(中文通用)、`16k_zh_en`(中英文) |
 | `voice_id` | 是 | String | 音频流全局唯一标识（推荐 UUID），最长128位 |
 | `voice_format` | 否 | Integer | 语音编码：`1` PCM（默认） |
 | `needvad` | 否 | Integer | `0` 关闭 VAD，`1` 开启（默认） |
@@ -312,7 +312,7 @@ HTTP 接口的鉴权信息携带在请求 Header 中（与流式不同，不走 
 
 | 参数 | 必填 | 类型 | 说明 |
 |------|------|------|------|
-| `EngSerViceType` | 是 | String | 引擎类型：`16k_zh`(中文)、`16k_zh_en`(中英文) |
+| `EngSerViceType` | 是 | String | 引擎类型：`bigmodel`(大模型，推荐)、`16k_zh`(中文)、`16k_zh_en`(中英文) |
 | `SourceType` | 是 | Integer | `0` URL 上传、`1` 本地数据（base64） |
 | `VoiceFormat` | 是 | String | 音频格式：`wav`、`pcm`、`ogg-opus`、`mp3`、`m4a` |
 | `Data` | 条件 | String | base64 编码的音频数据（SourceType=1 时必填） |
@@ -349,7 +349,7 @@ HTTP 接口的鉴权信息携带在请求 Header 中（与流式不同，不走 
 
 | 参数 | 必填 | 类型 | 说明 |
 |------|------|------|------|
-| `EngineModelType` | 是 | String | 引擎类型：`16k_zh`(中文)、`16k_zh_en`(中英文) |
+| `EngineModelType` | 是 | String | 引擎类型：`bigmodel`(大模型，推荐)、`16k_zh`(中文)、`16k_zh_en`(中英文) |
 | `ChannelNum` | 是 | Integer | 声道数：`1` 单声道；`2` 双声道（8k 电话，自动区分说话人并返回 `ChannelId`：1=左/2=右） |
 | `ResTextFormat` | 是 | Integer | 结果格式：`0` 基础、`1` 含词级时间、`2` 含标点时间 |
 | `SourceType` | 是 | Integer | `0` URL 上传、`1` 本地数据（base64） |
@@ -478,26 +478,26 @@ cd trtc-asr-sdk-nodejs
 npm install
 
 # 实时语音识别
-npx ts-node examples/realtime-asr.ts -f examples/test.pcm
+npx ts-node examples/realtime-asr.ts -e bigmodel -f examples/test.pcm
 
 # 一句话识别
-npx ts-node examples/sentence-asr.ts -f examples/test.pcm
+npx ts-node examples/sentence-asr.ts -e bigmodel -f examples/test.pcm
 
 # 录音文件识别
-npx ts-node examples/file-asr.ts -f examples/test.wav
+npx ts-node examples/file-asr.ts -e bigmodel -f examples/test.wav
 
 # 说话人分离（实时：匿名聚类 + 字级说话人）
-npx ts-node examples/realtime-asr.ts -f examples/test.pcm --diarization 1 --word-info 1
+npx ts-node examples/realtime-asr.ts -e bigmodel -f examples/test.pcm --diarization 1 --word-info 1
 
 # 说话人分离（实时：声纹角色认证，返回角色名）
-npx ts-node examples/realtime-asr.ts -f examples/test.pcm --diarization 3 \
+npx ts-node examples/realtime-asr.ts -e bigmodel -f examples/test.pcm --diarization 3 \
   --roles "teacher=https://example.com/teacher.wav,student=https://example.com/student.wav"
 
 # VAD 调优（远场过滤 + 噪声阈值）
-npx ts-node examples/realtime-asr.ts -f examples/test.pcm --vad-level 1 --noise-threshold 1.5
+npx ts-node examples/realtime-asr.ts -e bigmodel -f examples/test.pcm --vad-level 1 --noise-threshold 1.5
 
 # 说话人分离（录音文件）
-npx ts-node examples/file-asr.ts -u https://example.com/call.wav --diarization 1
+npx ts-node examples/file-asr.ts -e bigmodel -u https://example.com/call.wav --diarization 1
 
 # 查看所有选项
 npx ts-node examples/realtime-asr.ts --help

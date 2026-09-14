@@ -19,19 +19,30 @@ import { v3, SpeechRecognitionListener, SpeechRecognitionResponse } from "../src
 const SDK_APP_ID = Number(process.env.TRTC_ASR_SDK_APP_ID || 0);
 const SECRET_KEY = process.env.TRTC_ASR_SECRET_KEY || "";
 
-function parseArgs(): { file: string; engine: string } {
+function parseArgs(): { file: string; engine: string; lang: string } {
   const args = process.argv.slice(2);
   let file = "examples/test.pcm";
-  let engine = "16k_zh_en";
+  let engine = "";
+  let lang = "";
   for (let i = 0; i < args.length; i++) {
     if (args[i] === "-f" && args[i + 1]) {
       file = args[i + 1];
+      i++;
+    } else if (args[i] === "--lang" && args[i + 1]) {
+      lang = args[i + 1];
       i++;
     } else if (!args[i].startsWith("-")) {
       engine = args[i];
     }
   }
-  return { file, engine };
+  if (!engine) {
+    console.error("error: engine argument is required (engine model type, e.g. bigmodel)");
+    process.exit(2);
+  }
+  // The bigmodel engine is best used with an explicit language; every other
+  // engine falls back to server-side detection unless --lang is given.
+  if (!lang && engine === "bigmodel") lang = "zh";
+  return { file, engine, lang };
 }
 
 const listener: SpeechRecognitionListener = {
@@ -63,11 +74,12 @@ async function main() {
     console.error("Set TRTC_ASR_SDK_APP_ID and TRTC_ASR_SECRET_KEY first.");
     process.exit(1);
   }
-  const { file, engine } = parseArgs();
+  const { file, engine, lang } = parseArgs();
 
   // v3 credentials need only SDKAppID + SecretKey (no Tencent Cloud APPID).
   const credential = v3.newCredential(SDK_APP_ID, SECRET_KEY);
   const recognizer = new v3.SpeechRecognizer(credential, engine, listener);
+  if (lang) recognizer.setLanguage(lang);
 
   // start() waits synchronously for the server's ack: authentication (4002)
   // and gray-switch (4001) errors are thrown here, not via onFail.

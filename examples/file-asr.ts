@@ -59,7 +59,8 @@ async function main(): Promise<void> {
     options: {
       file: { type: "string", short: "f", default: "" },
       url: { type: "string", short: "u", default: "" },
-      engine: { type: "string", short: "e", default: "16k_zh_en" },
+      engine: { type: "string", short: "e" },
+      lang: { type: "string", default: "" },
       res: { type: "string", default: "1" },
       callback: { type: "string", default: "" },
       diarization: { type: "string", default: "0" },
@@ -74,7 +75,16 @@ async function main(): Promise<void> {
 
   const filePath = values.file!;
   const audioURL = values.url!;
-  const engine = values.engine!;
+  const engine = values.engine;
+  if (!engine) {
+    console.error("error: -e/--engine is required (engine model type, e.g. -e bigmodel)");
+    process.exit(2);
+  }
+  // The bigmodel engine is best used with an explicit language; every other
+  // engine falls back to server-side detection unless --lang is given.
+  if (!values.lang && engine === "bigmodel") {
+    values.lang = "zh";
+  }
   const resFormat = parseInt(values.res!, 10);
   const callbackUrl = values.callback!;
   const diarization = parseInt(values.diarization!, 10);
@@ -112,6 +122,9 @@ async function main(): Promise<void> {
   const recognizer = new FileRecognizer(credential);
 
   const commonOptions: Partial<CreateRecTaskRequest> = {};
+  if (values.lang) {
+    commonOptions.language = values.lang!;
+  }
   if (diarization) {
     commonOptions.speakerDiarization = diarization;
     commonOptions.speakerNumber = speakers;

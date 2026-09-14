@@ -32,7 +32,8 @@ async function main(): Promise<void> {
     options: {
       file: { type: "string", short: "f", default: "" },
       url: { type: "string", short: "u", default: "" },
-      engine: { type: "string", short: "e", default: "16k_zh_en" },
+      engine: { type: "string", short: "e" },
+      lang: { type: "string", default: "" },
       fmt: { type: "string", default: "pcm" },
       "word-info": { type: "string", short: "w", default: "0" },
     },
@@ -40,8 +41,17 @@ async function main(): Promise<void> {
 
   const filePath = values.file!;
   const audioURL = values.url!;
-  const engine = values.engine!;
+  const engine = values.engine;
+  if (!engine) {
+    console.error("error: -e/--engine is required (engine model type, e.g. -e bigmodel)");
+    process.exit(2);
+  }
   const voiceFmt = values.fmt!;
+  // The bigmodel engine is best used with an explicit language; every other
+  // engine falls back to server-side detection unless --lang is given.
+  if (!values.lang && engine === "bigmodel") {
+    values.lang = "zh";
+  }
   const wordInfo = parseInt(values["word-info"]!, 10);
 
   if (!APP_ID || !SDK_APP_ID || !SECRET_KEY) {
@@ -75,25 +85,25 @@ async function main(): Promise<void> {
 
   if (audioURL) {
     console.log(`Recognizing from URL: ${audioURL}`);
-    result = await recognizer.recognizeURL(audioURL, voiceFmt, engine);
+    result = await recognizer.recognize({
+      engServiceType: engine,
+      sourceType: 0,
+      voiceFormat: voiceFmt,
+      url: audioURL,
+      wordInfo,
+      language: values.lang!,
+    });
   } else {
     const data = fs.readFileSync(filePath);
     console.log(`Recognizing from file: ${filePath} (${data.length} bytes)`);
 
-    if (wordInfo > 0) {
-      const req: SentenceRecognitionRequest = {
-        engServiceType: engine,
-        sourceType: 1,
-        voiceFormat: voiceFmt,
-        wordInfo,
-      };
-      result = await recognizer.recognizeDataWithOptions(
-        Buffer.from(data),
-        req,
-      );
-    } else {
-      result = await recognizer.recognizeData(Buffer.from(data), voiceFmt, engine);
-    }
+    result = await recognizer.recognizeDataWithOptions(Buffer.from(data), {
+      engServiceType: engine,
+      sourceType: 1,
+      voiceFormat: voiceFmt,
+      wordInfo,
+      language: values.lang!,
+    });
   }
 
   console.log(`Result: ${result.result}`);

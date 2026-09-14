@@ -167,7 +167,7 @@ async function main(): Promise<void> {
   const { values } = parseArgs({
     options: {
       file: { type: "string", short: "f", default: "test.pcm" },
-      engine: { type: "string", short: "e", default: "16k_zh_en" },
+      engine: { type: "string", short: "e" },
       concurrency: { type: "string", short: "c", default: "1" },
       loop: { type: "boolean", short: "l", default: false },
       lang: { type: "string", default: "" },
@@ -181,7 +181,16 @@ async function main(): Promise<void> {
   });
 
   const filePath = values.file!;
-  const engine = values.engine!;
+  const engine = values.engine;
+  if (!engine) {
+    console.error("error: -e/--engine is required (engine model type, e.g. -e bigmodel)");
+    process.exit(2);
+  }
+  // The bigmodel engine is best used with an explicit language; every other
+  // engine falls back to server-side detection unless --lang is given.
+  if (!values.lang && engine === "bigmodel") {
+    values.lang = "zh";
+  }
   const concurrency = parseInt(values.concurrency!, 10);
   const loop = values.loop!;
   const opts = {

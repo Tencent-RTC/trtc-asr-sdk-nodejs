@@ -28,7 +28,8 @@ async function main() {
   const args = process.argv.slice(2);
   let file = "";
   let url = "";
-  let engine = "16k_zh_en";
+  let engine = "";
+  let lang = "";
   for (let i = 0; i < args.length; i++) {
     if (args[i] === "-f" && args[i + 1]) {
       file = args[i + 1];
@@ -36,10 +37,20 @@ async function main() {
     } else if (args[i] === "-u" && args[i + 1]) {
       url = args[i + 1];
       i++;
+    } else if (args[i] === "--lang" && args[i + 1]) {
+      lang = args[i + 1];
+      i++;
     } else if (!args[i].startsWith("-")) {
       engine = args[i];
     }
   }
+  if (!engine) {
+    console.error("error: engine argument is required (engine model type, e.g. bigmodel)");
+    process.exit(2);
+  }
+  // The bigmodel engine is best used with an explicit language; every other
+  // engine falls back to server-side detection unless --lang is given.
+  if (!lang && engine === "bigmodel") lang = "zh";
   if ((file === "") === (url === "")) {
     console.error("Pass exactly one of -f (local file) or -u (URL).");
     process.exit(1);
@@ -49,9 +60,23 @@ async function main() {
   const credential = v3.newCredential(SDK_APP_ID, SECRET_KEY);
   const recognizer = new v3.FileRecognizer(credential);
 
-  const taskId = url
-    ? await recognizer.createTaskFromURL(url, engine)
-    : await recognizer.createTaskFromData(Buffer.from(fs.readFileSync(file)), engine);
+  const req: v3.CreateTranscriptionRequest = {
+    engine_model_type: engine,
+    channel_num: 1,
+    res_text_format: 1,
+    source_type: 0, // SOURCE_TYPE_URL; createTaskFromDataWithOptions switches it
+    language: lang,
+  };
+  let taskId: string;
+  if (url) {
+    req.url = url;
+    taskId = await recognizer.createTask(req);
+  } else {
+    taskId = await recognizer.createTaskFromDataWithOptions(
+      Buffer.from(fs.readFileSync(file)),
+      req,
+    );
+  }
   console.log(`Task created: ${taskId}`);
 
   const status = await recognizer.waitForResult(taskId);
