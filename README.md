@@ -5,13 +5,13 @@
 
 本 SDK 面向**新版 v3 协议**：只需 `SDKAppID` + `SecretKey`（无需腾讯云 AppID），`auth`/`params` 分块、全 snake_case、扁平响应 + 数字错误码。v3 客户端位于 `v3` 命名空间（`import { v3 } from "trtc-asr"`）。
 
+> 旧版 v2 / v1 协议客户端（包顶层导出）继续维护、存量可用，文档见 [docs/v2_protocol.md](./docs/v2_protocol.md)。
+
 > 其他语言 SDK：[Go](https://github.com/Tencent-RTC/trtc-asr-sdk-go) | [Python](https://github.com/Tencent-RTC/trtc-asr-sdk-python) | [Java](https://github.com/Tencent-RTC/trtc-asr-sdk-java) | [Rust](https://github.com/Tencent-RTC/trtc-asr-sdk-rust) | [C++](https://github.com/Tencent-RTC/trtc-asr-sdk-cpp)
->
-> **旧版协议（v2 / v1）**的完整说明与客户端（包顶层导出）见 [docs/v2_protocol.md](./docs/v2_protocol.md)。旧版客户端继续维护，存量用户无需任何改动。
 
 ## 前提条件
 
-使用本 SDK 前，您需要准备两个凭证：`SDKAppID`、`SecretKey`。国内站与国际站的账号体系不同，请按您的站点参照官方快速接入指南完成注册、创建应用与服务开通：
+使用本 SDK 前，您需要准备两个凭证：`SDKAppID`、`SecretKey`（v3 协议以 SDKAppID 为唯一客户维度，**不再需要腾讯云 AppID**）。国内站与国际站的账号体系不同，请按您的站点参照官方快速接入指南完成注册、创建应用与服务开通：
 
 - **国内站**：[快速接入指南](https://xai.cloud-rtc.com/#gettingStarted) — 注册腾讯云账号并完成实名认证 → 在 [TRTC 控制台](https://console.cloud.tencent.com/trtc/app)创建应用 → 开通「AI 智能识别」（体验版可免费试用）
 - **国际站**：[Quick Start](https://xai-intl.cloud-rtc.com/#gettingStarted) — 在 [trtc.io](https://www.trtc.io) 注册（自动开通 Tencentcloud 账号，无需实名认证）→ 在 [console.trtc.io](https://console.trtc.io) 创建应用 → 开通「AI Speech Recognition」（仅 RTC Engine Lite 及以上包月套餐，Free Trial 不支持）
@@ -113,6 +113,7 @@ sequenceDiagram
     S-->>C: result.slice_type=0（句开始）
     S-->>C: result.slice_type=1（中间结果）×N
     S-->>C: result.slice_type=2（句末稳定结果）
+    Note right of S: 多句时 index 递增，重复 0→1→2
 
     C->>S: {"type":"end"}（音频发完）
     S-->>C: {"final":1}（整流结束）
@@ -410,6 +411,8 @@ npm install trtc-asr
 
 ### 实时语音识别
 
+`start()` 同步等服务端 ack，鉴权/参数错误立即返回：
+
 ```typescript
 import {
   v3,
@@ -458,6 +461,8 @@ main().catch(console.error);
 
 ### 一句话识别
 
+`POST /v3/transcribe`，请求/响应均为 snake_case 扁平结构：
+
 ```typescript
 import { v3 } from "trtc-asr";
 import * as fs from "fs";
@@ -482,6 +487,8 @@ main().catch(console.error);
 ```
 
 ### 录音文件识别
+
+`create_transcription` + `describe_transcription`，任务 ID 为 `transcription_id`，24 小时有效：
 
 ```typescript
 import { v3 } from "trtc-asr";
@@ -511,10 +518,10 @@ main().catch(console.error);
 
 | 参数 | 国内站 | 国际站 | 说明 |
 |------|--------|--------|------|
-| `sdkAppId` | [TRTC 控制台](https://console.cloud.tencent.com/trtc/app) > 应用管理 | [console.trtc.io](https://console.trtc.io) > 应用详情 | TRTC 应用 ID |
+| `sdkAppId` | [TRTC 控制台](https://console.cloud.tencent.com/trtc/app) > 应用管理 | [console.trtc.io](https://console.trtc.io) > 应用详情 | TRTC 应用 ID，v3 唯一客户维度 |
 | `secretKey` | [TRTC 控制台](https://console.cloud.tencent.com/trtc/app) > 应用概览 > SDK密钥 | [console.trtc.io](https://console.trtc.io) > 应用详情 | 用于生成 UserSig，不会传输到网络 |
 
-> v2 客户端需要的腾讯云 `AppID`（CAM 密钥管理 / 国际站账号信息页）在 v3 下不再需要。
+> v2 旧版协议还需要腾讯云 `AppID`，见 [docs/v2_protocol.md](./docs/v2_protocol.md)。
 
 ## 配置项
 
@@ -523,16 +530,16 @@ main().catch(console.error);
 | 方法 | 说明 | 默认值 |
 |------|------|--------|
 | `setVoiceFormat(f)` | 音频格式 | 1 (PCM) |
-| `setNeedVad(v)` | 是否开启 VAD | 1 (开启) |
-| `setConvertNumMode(m)` | 数字转换模式 | 1 (智能) |
-| `setHotwordId(id)` | 热词表 ID | - |
+| `setNeedVad(v)` | 是否开启 VAD（显式 `0` 会真正下发关闭） | 1 (开启) |
+| `setConvertNumMode(m)` | 数字转换模式：`0` 不转 / `1` 智能 / `3` 数学（显式 `0` 生效） | 1 (智能) |
+| `setHotwordId(id)` | 热词表 ID（SDKAppID 维度） | - |
 | `setHotwordList(list)` | 临时热词列表 `词\|权重,...` | - |
 | `setFilterDirty(m)` | 脏词过滤 | 0 (关闭) |
 | `setFilterModal(m)` | 语气词过滤 | 0 (关闭) |
 | `setFilterPunc(m)` | 句号过滤 | 0 (关闭) |
 | `setFilterEmptyResult(m)` | 空结果是否回调 | 1 (不回调) |
-| `setWordInfo(m)` | 词级/字级时间 | 0 (关闭) |
-| `setWordWithSpace(m)` | 英文单词间空格 | 0 (关闭) |
+| `setWordInfo(m)` | 词级/字级时间：`0` 关 / `1` 开 / `2` 含标点 / `100` 字幕 | 0 (关闭) |
+| `setWordWithSpace(m)` | 英文单词间空格输出 | 0 (关闭) |
 | `setVadSilenceTime(ms)` | VAD 静音阈值（240-2000） | 800ms |
 | `setVadLevel(level)` | VAD 场景档：0 高召回 / 1 远场过滤 | 1 |
 | `setNoiseThreshold(v)` | VAD 噪声微调（0.0-4.0），覆盖场景档 | 未设置 |
@@ -543,8 +550,8 @@ main().catch(console.error);
 | `setSpeakerRoles(roles)` | 临时声纹角色（仅模式 3，`v3.SpeakerRole{roleName,audioUrl}`） | - |
 | `setVoiceprintIds(ids)` | 已注册声纹 ID（仅模式 3） | - |
 | `setLanguage(lang)` | 指定识别语言 | 自动检测 |
-| `setVoiceId(id)` | 自定义 voice_id | 自动 UUID |
-| `setContext(ctx)` | 识别上下文（`v3.Context{text,terms,general}`） | - |
+| `setVoiceId(id)` | 自定义 voice_id（UserSig 自动绑定该值） | 自动 UUID |
+| `setContext(ctx)` | 识别上下文（`text`/`terms`/`general`） | - |
 
 > v3 在线不支持 v2 的 `customization_id` / `replace_text_id`（v3 协议未包含）。
 
@@ -611,7 +618,8 @@ trtc-asr-sdk-nodejs/
 
 ### 错误码怎么看？
 
-SDK 本地错误码是 10xx（如 `1001` 参数错误）；服务端返回的是 4xxx/5xxx（如 `4002` 鉴权失败）。`ASRError.code` 的值域不冲突，可直接按区间判断来源。
+v3 全部使用数字错误码：参数非法 `4001`、鉴权失败 `4002`、并发超限 `4006`、超时 `4008`、服务端错误 `5000`。
+SDK 返回的错误是 `ASRError`，其 `code` 即服务端错误码（SDK 本地错误用 10xx 区间，如 `1001` 本地参数错误、`1002` 连接失败）。注意离线接口鉴权失败也是 HTTP 200，请以 body 的 `code` 为准（SDK 已处理）。
 
 ### v1 的任务 ID 能用 v3 接口查询吗？
 
