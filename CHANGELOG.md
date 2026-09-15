@@ -9,6 +9,13 @@
 
 ## [1.2.3] - 2026-09-15
 
+### 修复
+
+- **请求遥测里的版本号落后一个版本**：1.2.3 只改了 `package.json` /
+  `package-lock.json`，`src/sdkinfo.ts` 的 `SDK_VERSION` 仍停在 `1.2.2`，
+  于是每次请求上报的 `version` 都是 `1.2.2`。两处现已对齐，
+  `tests/sdkinfo.test.ts` 的一致性断言继续守住。
+
 ### 文档
 
 - 中英文 README 与其余五个语言 SDK 对齐：前提条件与凭证获取补上「v3 以
