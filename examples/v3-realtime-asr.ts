@@ -7,9 +7,6 @@
  *   TRTC_ASR_SDK_APP_ID, TRTC_ASR_SECRET_KEY
  * (v3 does not need the Tencent Cloud APPID.)
  *
- * Prerequisite: the server has enabled the EnableV3Route gray switch for
- * your SDKAppID, otherwise start() fails with 4001.
- *
  * Usage: npx ts-node examples/v3-realtime-asr.ts -f examples/test.pcm [engine]
  */
 

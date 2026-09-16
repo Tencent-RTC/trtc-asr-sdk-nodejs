@@ -80,10 +80,6 @@ export interface Word {
 /**
  * Build the v3 auth block. requestId is the UserSig identifier for the
  * offline interfaces; the server binds the signature to it.
- *
- * The protocol's internal "business" field (gray/routing dimension managed
- * by the service side, default "OUTER") is not part of the public SDK
- * surface and is never sent by this client.
  */
 export function buildAuthBlock(credential: Credential, requestId: string): Record<string, string> {
   let userSig = credential.userSig;

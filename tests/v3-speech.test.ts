@@ -134,8 +134,7 @@ describe("v3 start-frame wire format", () => {
     const auth = frame.auth;
     expect(auth.sdkappid).toBe("1400000000");
     expect(auth.usersig).toBeTruthy();
-    // business is a server-side internal gray dimension; never sent.
-    expect(auth.business).toBeUndefined();
+    expect(Object.keys(auth).sort()).toEqual(["sdkappid", "usersig"]);
 
     const params = frame.params;
     expect(params.voice_id).toBe("voice-1");
@@ -199,7 +198,7 @@ describe("v3 sync ack handling", () => {
     });
   });
 
-  test("gray-disabled (4001) rejects start synchronously", async () => {
+  test("4001 rejects start synchronously", async () => {
     const recognizer = makeRecognizer();
     const pending = recognizer.start();
     const ws = instances()[instances().length - 1];

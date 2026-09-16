@@ -96,7 +96,7 @@ describe("v3 /v3/transcribe", () => {
     expect(auth.sdkappid).toBe("1400000000");
     expect(auth.usersig).toBeTruthy();
     expect(auth.request_id).toBeTruthy();
-    expect(auth.business).toBeUndefined();
+    expect(Object.keys(auth).sort()).toEqual(["request_id", "sdkappid", "usersig"]);
 
     const params = body.params;
     expect(params.engine_model_type).toBe("16k_zh_en");
