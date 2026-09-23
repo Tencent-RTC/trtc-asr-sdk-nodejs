@@ -22,6 +22,14 @@ export const STREAM_FRAME_MAX_BYTES = 256 * 1024;
 /** ackTimeout (ms) caps how long start() waits for the server's ack. */
 export const ACK_TIMEOUT_MS = 5000;
 
+/**
+ * Speaker-context ack timeout (ms) replaces ACK_TIMEOUT_MS while resuming a
+ * speaker context (sync mode + a stored speaker_context_id): the first
+ * response is delayed until the server has loaded the stored speaker snapshot
+ * and restored it in the diarization session.
+ */
+export const SPEAKER_CONTEXT_ACK_TIMEOUT_MS = 15000;
+
 /** SourceType for the HTTP interfaces. */
 export const SOURCE_TYPE_URL = 0;
 export const SOURCE_TYPE_DATA = 1;
@@ -36,6 +44,25 @@ export const TASK_STATUS_FAILED = 3;
 export const SPEAKER_DIARIZATION_OFF = 0;
 export const SPEAKER_DIARIZATION_CLUSTER = 1;
 export const SPEAKER_DIARIZATION_VOICEPRINT = 3;
+
+/**
+ * Speaker-context ("断点续传") modes for enable_speaker_context. They turn
+ * speaker diarization into a resumable session: the server stores the stable
+ * speaker anchors and hands back an opaque speaker_context_id, which a later
+ * connection passes back to keep the same speakers on the same ids. Both
+ * modes require speaker diarization.
+ */
+export const SPEAKER_CONTEXT_OFF = 0;
+/** Sync: with a stored id the first response waits for the snapshot. */
+export const SPEAKER_CONTEXT_SYNC = 1;
+/** Async: the first response answers immediately (id only, no status). */
+export const SPEAKER_CONTEXT_ASYNC = 2;
+
+/** continue_status values of SpeakerContinue.continue_status. */
+export const CONTINUE_STATUS_FRESH = "fresh";
+export const CONTINUE_STATUS_RESUMED = "resumed";
+export const CONTINUE_STATUS_DEGRADED = "degraded";
+export const CONTINUE_STATUS_DISABLED = "disabled";
 
 /**
  * Create a credential for the v3 API: only SdkAppID + SecretKey are needed.
@@ -61,6 +88,25 @@ export interface Context {
 export interface SpeakerRole {
   role_name: string;
   audio_url: string;
+}
+
+/**
+ * Speaker-context handshake result carried by the first server response
+ * (`speaker_continue`). Absent unless the session set enable_speaker_context.
+ *
+ * Persist speaker_context_id on the client side and pass it back through
+ * {@link SpeechRecognizer.setSpeakerContextId} when reconnecting within its
+ * lifetime (24h by default); the response of a later session is
+ * authoritative, so always overwrite the stored value. Wait for the first
+ * response before sending audio: in sync mode with a stored id the server
+ * answers only after the snapshot has been applied.
+ */
+export interface SpeakerContinue {
+  /** One of CONTINUE_STATUS_*. Empty in async mode (the server answers
+   * before the snapshot is loaded); unknown values mean "no information". */
+  continue_status?: string;
+  /** Id to pass back with setSpeakerContextId to resume the same speakers. */
+  speaker_context_id?: string;
 }
 
 /** One audio piece of a distributed recording task. */
@@ -170,6 +216,38 @@ export function validateSpeakerDiarization(
       throw new ASRError(ErrorCode.INVALID_PARAM, `VoiceprintIds[${i}] is empty`);
     }
   });
+}
+
+/**
+ * Check the speaker-context ("断点续传") options.
+ *
+ * enable_speaker_context accepts 0 (off), 1 (sync) or 2 (async); the server
+ * silently normalizes anything else to off, but a caller that meant to enable
+ * resumption is better served by an immediate error than by a session that
+ * quietly never returns a speaker_context_id.
+ *
+ * The server ignores the speaker-context parameters entirely when speaker
+ * diarization is off, so that combination is a caller mistake as well
+ * (mirroring how roles/voiceprint ids require mode 3).
+ *
+ * speaker_context_id itself is not format-checked on purpose: the server
+ * treats an unknown or expired id as "start a new session", so a stale value
+ * degrades gracefully instead of failing the connection.
+ */
+export function validateSpeakerContext(mode: number, diarization: number): void {
+  const validModes = [SPEAKER_CONTEXT_OFF, SPEAKER_CONTEXT_SYNC, SPEAKER_CONTEXT_ASYNC];
+  if (!validModes.includes(mode)) {
+    throw new ASRError(
+      ErrorCode.INVALID_PARAM,
+      `EnableSpeakerContext must be 0 (off), 1 (sync) or 2 (async), got ${mode}`,
+    );
+  }
+  if (mode !== SPEAKER_CONTEXT_OFF && diarization === SPEAKER_DIARIZATION_OFF) {
+    throw new ASRError(
+      ErrorCode.INVALID_PARAM,
+      "EnableSpeakerContext requires SpeakerDiarization=1 or 3",
+    );
+  }
 }
 
 /**

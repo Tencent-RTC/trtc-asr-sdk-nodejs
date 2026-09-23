@@ -27,11 +27,15 @@ import { sdkReportParams } from "../sdkinfo";
 import { genUserSig } from "../usersig";
 import {
   Context,
+  SPEAKER_CONTEXT_ACK_TIMEOUT_MS,
+  SPEAKER_CONTEXT_SYNC,
   SPEAKER_DIARIZATION_VOICEPRINT,
+  SpeakerContinue,
   SpeakerRole,
   START_FRAME_MAX_BYTES,
   STREAM_FRAME_MAX_BYTES,
   ACK_TIMEOUT_MS,
+  validateSpeakerContext,
   validateSpeakerDiarization,
 } from "./wire";
 
@@ -107,6 +111,10 @@ export interface SpeechRecognitionResponse {
   message_id: string;
   final: number;
   result?: RecognitionResult;
+  /** Speaker-context result of the first response, present only when the
+   * session enabled the speaker context (see setEnableSpeakerContext); it
+   * also reaches onRecognitionStart. */
+  speaker_continue?: SpeakerContinue;
 }
 
 /** Callback interface for speech recognition events. */
@@ -157,6 +165,12 @@ export class SpeechRecognizer {
   private voiceId = "";
   private language = "";
   private context: Context | null = null;
+  /** Speaker context ("断点续传"): requested mode (0/1/2) and the id issued by
+   * an earlier session. */
+  private enableSpeakerContext = 0;
+  private speakerContextId = "";
+  /** Handshake result of the first response, exposed via getSpeakerContinue(). */
+  private speakerContinue: SpeakerContinue | null = null;
 
   private writeTimeout = DEFAULT_WRITE_TIMEOUT;
   private stopTimeout = DEFAULT_STOP_TIMEOUT;
@@ -250,6 +264,48 @@ export class SpeechRecognizer {
   setVoiceprintIds(ids: string[]): void {
     this.voiceprintIds = [...(ids || [])];
   }
+  /**
+   * Make the speaker-diarization session resumable ("说话人分离断点续传") and
+   * select how the server reports the handshake:
+   *
+   * - SPEAKER_CONTEXT_OFF (0, default) nothing is saved or returned;
+   *   setSpeakerContextId is ignored.
+   * - SPEAKER_CONTEXT_SYNC (1) the first response waits for the stored
+   *   snapshot and reports the outcome through
+   *   SpeakerContinue.continue_status.
+   * - SPEAKER_CONTEXT_ASYNC (2) the first response answers immediately with
+   *   the speaker_context_id only (no status) — keeps reconnects fast.
+   *
+   * Requires setSpeakerDiarization(1) or (3). See SpeakerContinue for the
+   * reconnect workflow.
+   */
+  setEnableSpeakerContext(mode: number): void {
+    this.enableSpeakerContext = mode;
+  }
+
+  /**
+   * Pass back the speaker_context_id returned by a previous session
+   * (SpeakerContinue.speaker_context_id) so this session resumes the same
+   * speaker identities instead of numbering speakers from scratch.
+   *
+   * Only effective together with setEnableSpeakerContext(1) or (2). The
+   * server ignores an expired or unknown id and starts a new session, so a
+   * stale value does not fail the connection; always overwrite the stored id
+   * with the one returned by the latest first response.
+   */
+  setSpeakerContextId(id: string): void {
+    this.speakerContextId = (id || "").trim();
+  }
+
+  /**
+   * Speaker-context result carried by the first response, or null when the
+   * session did not enable the speaker context. Available once start()
+   * resolves; also delivered to onRecognitionStart.
+   */
+  getSpeakerContinue(): SpeakerContinue | null {
+    return this.speakerContinue;
+  }
+
   setVoiceId(id: string): void {
     this.voiceId = id;
   }
@@ -442,6 +498,7 @@ export class SpeechRecognizer {
       this.speakerRoles as any,
       this.voiceprintIds,
     );
+    validateSpeakerContext(this.enableSpeakerContext, this.speakerDiarization);
     validateVadTuning(this.vadLevel, this.noiseThreshold);
     if (this.maxSpeakTime !== 0) {
       validateEnumOption("MaxSpeakTime", this.maxSpeakTime, [
@@ -518,6 +575,12 @@ export class SpeechRecognizer {
       if (this.speakerRoles.length) params.speaker_roles = this.speakerRoles;
       if (this.voiceprintIds.length) params.voiceprint_ids = this.voiceprintIds;
     }
+    // Speaker context ("断点续传") is only sent when the caller opted in; the
+    // mode/diarization combination is validated locally.
+    if (this.enableSpeakerContext) {
+      params.enable_speaker_context = this.enableSpeakerContext;
+      if (this.speakerContextId) params.speaker_context_id = this.speakerContextId;
+    }
     if (this.context) {
       const wire: Record<string, unknown> = {};
       if (this.context.text) wire.text = this.context.text;
@@ -547,6 +610,16 @@ export class SpeechRecognizer {
       );
     }
     return data;
+  }
+
+  /** How long connect waits for the first response. Resuming a speaker
+   * context in sync mode makes the server apply the stored snapshot before
+   * answering; every other case answers immediately. */
+  private ackTimeoutMs(): number {
+    if (this.enableSpeakerContext === SPEAKER_CONTEXT_SYNC && this.speakerContextId) {
+      return SPEAKER_CONTEXT_ACK_TIMEOUT_MS;
+    }
+    return ACK_TIMEOUT_MS;
   }
 
   private connect(resolve: () => void, reject: (err: Error) => void): void {
@@ -603,7 +676,7 @@ export class SpeechRecognizer {
       reject(
         new ASRError(ErrorCode.READ_FAILED, "read start ack failed: ack timeout"),
       );
-    }, ACK_TIMEOUT_MS);
+    }, this.ackTimeoutMs());
 
     const settle = (fn: () => void) => {
       if (settled) return;
@@ -733,6 +806,17 @@ export class SpeechRecognizer {
       return;
     }
 
+    // speaker_continue is present only when the session enabled the speaker
+    // context; it carries the id to persist for a later resume.
+    const speakerContinueData = ack?.speaker_continue;
+    this.speakerContinue =
+      speakerContinueData && typeof speakerContinueData === "object"
+        ? {
+            continue_status: speakerContinueData.continue_status ?? "",
+            speaker_context_id: speakerContinueData.speaker_context_id ?? "",
+          }
+        : null;
+
     settle(() => {
       this.acked = true;
       this.state = State.RUNNING;
@@ -743,6 +827,9 @@ export class SpeechRecognizer {
           voice_id: this.voiceId,
           message_id: "",
           final: 0,
+          // The ack itself is consumed here; re-attach the speaker context it
+          // carried for callback-style callers.
+          speaker_continue: this.speakerContinue ?? undefined,
         }),
       );
       // A frame that already carries a result (defensive) is dispatched now.

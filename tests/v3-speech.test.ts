@@ -10,7 +10,21 @@ import {
   SpeechRecognizer,
   SpeechRecognitionResponse,
 } from "../src/v3/speech-recognizer";
-import { newCredential, SpeakerRole, Context } from "../src/v3/wire";
+import {
+  ACK_TIMEOUT_MS,
+  CONTINUE_STATUS_FRESH,
+  CONTINUE_STATUS_RESUMED,
+  SPEAKER_CONTEXT_ACK_TIMEOUT_MS,
+  SPEAKER_CONTEXT_ASYNC,
+  SPEAKER_CONTEXT_SYNC,
+  SPEAKER_DIARIZATION_CLUSTER,
+  newCredential,
+  SpeakerRole,
+  Context,
+} from "../src/v3/wire";
+
+const CONTEXT_ID =
+  "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
 
 // Controllable fake WebSocket: tests drive the ack and downlink frames via
 // instance.emit(), and inspect everything the recognizer sent.
@@ -105,6 +119,8 @@ describe("v3 start-frame wire format", () => {
       { role_name: "teacher", audio_url: "https://example.com/t.wav" },
     ]);
     recognizer.setVoiceprintIds(["vp-1"]);
+    recognizer.setEnableSpeakerContext(SPEAKER_CONTEXT_SYNC);
+    recognizer.setSpeakerContextId(CONTEXT_ID);
     recognizer.setContext({
       text: "bg",
       terms: ["ASR"],
@@ -148,6 +164,9 @@ describe("v3 start-frame wire format", () => {
     expect(params.hotword_list).toBe("深度学习|10");
     expect(params.speaker_diarization).toBe(3);
     expect(params.voiceprint_ids).toEqual(["vp-1"]);
+    // Speaker context ("断点续传"): the mode and the id travel in params.
+    expect(params.enable_speaker_context).toBe(SPEAKER_CONTEXT_SYNC);
+    expect(params.speaker_context_id).toBe(CONTEXT_ID);
     // speaker_roles elements are snake_case, not the v2 CamelCase wire.
     expect(params.speaker_roles).toEqual([
       { role_name: "teacher", audio_url: "https://example.com/t.wav" },
@@ -173,6 +192,8 @@ describe("v3 start-frame wire format", () => {
       "hotword_list",
       "speaker_diarization",
       "context",
+      "enable_speaker_context",
+      "speaker_context_id",
     ]) {
       expect(params[absent]).toBeUndefined();
     }
@@ -181,6 +202,17 @@ describe("v3 start-frame wire format", () => {
     expect(params.voice_format).toBe(1);
     expect(params.engine_model_type).toBe("16k_zh_en");
     expect(params.sdk_info.sdk_lang).toBe("nodejs");
+  });
+
+  test("a stored speaker_context_id is omitted once the mode is turned off", () => {
+    const recognizer = makeRecognizer();
+    recognizer.setSpeakerDiarization(SPEAKER_DIARIZATION_CLUSTER);
+    recognizer.setEnableSpeakerContext(SPEAKER_CONTEXT_SYNC);
+    recognizer.setSpeakerContextId(CONTEXT_ID);
+    recognizer.setEnableSpeakerContext(0);
+    const params = (recognizer as any).buildParams();
+    expect(params.enable_speaker_context).toBeUndefined();
+    expect(params.speaker_context_id).toBeUndefined();
   });
 });
 
@@ -219,6 +251,81 @@ describe("v3 sync ack handling", () => {
     jest.advanceTimersByTime(6000);
     await expect(pending).rejects.toMatchObject({ code: ErrorCode.READ_FAILED });
     jest.useRealTimers();
+  });
+});
+
+describe("v3 speaker context (断点续传)", () => {
+  test.each([
+    [
+      "resumed",
+      { continue_status: "resumed", speaker_context_id: CONTEXT_ID },
+      SPEAKER_CONTEXT_SYNC,
+      CONTINUE_STATUS_RESUMED,
+    ],
+    [
+      "first issue reports fresh and the new id",
+      { continue_status: "fresh", speaker_context_id: CONTEXT_ID },
+      SPEAKER_CONTEXT_SYNC,
+      CONTINUE_STATUS_FRESH,
+    ],
+    // Async mode answers before the snapshot is applied: id only.
+    ["async keeps the id without a status", { speaker_context_id: CONTEXT_ID }, SPEAKER_CONTEXT_ASYNC, ""],
+    ["context disabled", null, null, null],
+  ] as Array<[string, any, number | null, string | null]>)(
+    "%s",
+    async (_name, speakerContinue, mode, wantStatus) => {
+      const startResponses: SpeechRecognitionResponse[] = [];
+      const recognizer = makeRecognizer({
+        onRecognitionStart: (resp: SpeechRecognitionResponse) => startResponses.push(resp),
+      });
+      if (mode !== null) {
+        recognizer.setSpeakerDiarization(SPEAKER_DIARIZATION_CLUSTER);
+        recognizer.setEnableSpeakerContext(mode);
+      }
+
+      const pending = recognizer.start();
+      const ws = instances()[instances().length - 1];
+      ws.emit("open");
+      ws.emit("message", ack("v1", speakerContinue ? { speaker_continue: speakerContinue } : {}));
+      await pending;
+
+      // The getter is usable as soon as start() resolves.
+      const result = recognizer.getSpeakerContinue();
+      if (wantStatus === null) {
+        expect(result).toBeNull();
+      } else {
+        expect(result).not.toBeNull();
+        expect(result?.continue_status).toBe(wantStatus);
+        expect(result?.speaker_context_id).toBe(CONTEXT_ID);
+      }
+
+      // The same block is delivered on onRecognitionStart.
+      expect(startResponses).toHaveLength(1);
+      if (wantStatus === null) {
+        expect(startResponses[0].speaker_continue).toBeUndefined();
+      } else {
+        expect(startResponses[0].speaker_continue?.speaker_context_id).toBe(CONTEXT_ID);
+      }
+
+      const stopPending = recognizer.stop();
+      ws.emit("message", resultFrame(2, 1, "done"));
+      await stopPending;
+    },
+  );
+
+  test("ack budget widens only while resuming (sync mode + stored id)", () => {
+    const recognizer = makeRecognizer();
+    expect((recognizer as any).ackTimeoutMs()).toBe(ACK_TIMEOUT_MS);
+
+    recognizer.setSpeakerDiarization(SPEAKER_DIARIZATION_CLUSTER);
+    recognizer.setEnableSpeakerContext(SPEAKER_CONTEXT_SYNC);
+    expect((recognizer as any).ackTimeoutMs()).toBe(ACK_TIMEOUT_MS); // first issue
+
+    recognizer.setSpeakerContextId(CONTEXT_ID);
+    expect((recognizer as any).ackTimeoutMs()).toBe(SPEAKER_CONTEXT_ACK_TIMEOUT_MS);
+
+    recognizer.setEnableSpeakerContext(SPEAKER_CONTEXT_ASYNC);
+    expect((recognizer as any).ackTimeoutMs()).toBe(ACK_TIMEOUT_MS);
   });
 });
 
@@ -327,6 +434,14 @@ describe("v3 local validation", () => {
     ["vad_level invalid", (r) => r.setVadLevel(2)],
     ["noise_threshold out of range", (r) => r.setNoiseThreshold(4.1)],
     ["diarization invalid", (r) => r.setSpeakerDiarization(2)],
+    [
+      "enable_speaker_context invalid",
+      (r) => {
+        r.setSpeakerDiarization(SPEAKER_DIARIZATION_CLUSTER);
+        r.setEnableSpeakerContext(3);
+      },
+    ],
+    ["enable_speaker_context without diarization", (r) => r.setEnableSpeakerContext(SPEAKER_CONTEXT_SYNC)],
   ];
   test.each(cases)("%s fails locally with INVALID_PARAM", (_name, apply) => {
     const recognizer = makeRecognizer();
@@ -349,6 +464,21 @@ describe("v3 local validation", () => {
     ],
     ["voice_format wav", (r) => r.setVoiceFormat(12)],
     ["word_info caption", (r) => r.setWordInfo(100)],
+    [
+      "speaker context sync",
+      (r) => {
+        r.setSpeakerDiarization(SPEAKER_DIARIZATION_CLUSTER);
+        r.setEnableSpeakerContext(SPEAKER_CONTEXT_SYNC);
+        r.setSpeakerContextId(CONTEXT_ID);
+      },
+    ],
+    [
+      "speaker context async without id",
+      (r) => {
+        r.setSpeakerDiarization(3);
+        r.setEnableSpeakerContext(SPEAKER_CONTEXT_ASYNC);
+      },
+    ],
   ];
   test.each(valid)("%s passes local validation", (_name, apply) => {
     const recognizer = makeRecognizer();

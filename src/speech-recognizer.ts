@@ -122,6 +122,14 @@ export interface RecognitionResult {
   last_token_runtime_ms?: number;
 }
 
+/** 断点续传的首响应握手结果（enable_speaker_context 开启时才有）。 */
+export interface SpeakerContinue {
+  /** fresh / resumed / degraded / disabled；异步模式（2）不返回。 */
+  continue_status?: string;
+  /** 下次连接经 setSpeakerContextId 传回的上下文 ID。 */
+  speaker_context_id?: string;
+}
+
 /** Response message from the ASR service. */
 export interface SpeechRecognitionResponse {
   code: number;
@@ -130,6 +138,7 @@ export interface SpeechRecognitionResponse {
   message_id: string;
   final: number;
   result?: RecognitionResult;
+  speaker_continue?: SpeakerContinue;
 }
 
 /** Callback interface for speech recognition events.
@@ -183,6 +192,9 @@ export class SpeechRecognizer {
   private maxSpeakTime = 0;
   private inputSampleRate = 0;
   private speakerDiarization = 0;
+  private enableSpeakerContext = 0;
+  private speakerContextId = "";
+  private speakerContinue: SpeakerContinue | null = null;
   private speakerNumber = 0;
   private speakerRoles: SpeakerRole[] = [];
   private voiceprintIds: string[] = [];
@@ -326,6 +338,23 @@ export class SpeechRecognizer {
    */
   setSpeakerDiarization(mode: number): void {
     this.speakerDiarization = mode;
+  }
+
+  /** 说话人分离断点续传：1=同步（首响应回报恢复状态）2=异步（只回 id）。需与
+   * setSpeakerDiarization(1/3) 同开。注意 v2 的 onRecognitionStart 在建连后本地
+   * 合成（早于服务端首响应），握手结果只能经 getSpeakerContinue() 读取。 */
+  setEnableSpeakerContext(mode: number): void {
+    this.enableSpeakerContext = mode;
+  }
+
+  /** 传回上次首响应返回的 speaker_context_id；过期/非法 ID 服务端按新会话处理。 */
+  setSpeakerContextId(id: string): void {
+    this.speakerContextId = (id || "").trim();
+  }
+
+  /** 首响应携带的断点续传握手结果；未开启时为 null。 */
+  getSpeakerContinue(): SpeakerContinue | null {
+    return this.speakerContinue;
   }
   /**
    * Hint the expected number of speakers. 0 means auto detection (default).
@@ -572,6 +601,20 @@ export class SpeechRecognizer {
     }
     // 8000 is the only supported override; 0 means "use the engine rate".
     validateEnumOption("InputSampleRate", this.inputSampleRate, [0, 8000]);
+    if (this.enableSpeakerContext !== 0 && this.speakerDiarization === 0) {
+      throw new ASRError(
+        ErrorCode.INVALID_PARAM,
+        "EnableSpeakerContext requires setSpeakerDiarization(1) or (3)",
+      );
+    }
+    if (this.enableSpeakerContext !== 0 && this.enableSpeakerContext !== 1 &&
+        this.enableSpeakerContext !== 2) {
+      throw new ASRError(
+        ErrorCode.INVALID_PARAM,
+        "EnableSpeakerContext must be 0 (off), 1 (sync) or 2 (async), got " +
+          String(this.enableSpeakerContext),
+      );
+    }
   }
 
   private connect(resolve: () => void, reject: (err: Error) => void): void {
@@ -633,6 +676,8 @@ export class SpeechRecognizer {
       maxSpeakTime: this.maxSpeakTime,
       inputSampleRate: this.inputSampleRate,
       speakerDiarization: this.speakerDiarization,
+      enableSpeakerContext: this.enableSpeakerContext,
+      speakerContextId: this.speakerContextId,
       speakerNumber: this.speakerNumber,
       speakerRoles: this.speakerRoles,
       voiceprintIds: this.voiceprintIds,
@@ -769,6 +814,12 @@ export class SpeechRecognizer {
     // frame yields a result-less response whose slice_type=0 would otherwise
     // be misread as a "sentence begin", emitting a spurious onSentenceBegin.
     // The session start is already signaled via onRecognitionStart on open.
+    if (resp.speaker_continue) {
+      // 首响应携带断点续传握手结果；v2 的 onRecognitionStart 在建连后本地
+      // 合成（早于本帧），只能经 getSpeakerContinue() 读取。
+      this.speakerContinue = resp.speaker_continue;
+    }
+
     if (!("result" in resp) || resp.result === null) {
       return;
     }

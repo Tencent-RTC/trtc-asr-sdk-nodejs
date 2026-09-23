@@ -79,6 +79,10 @@ export interface SignatureParamsOptions {
   speakerRoles?: SpeakerRole[];
   /** Pre-registered voiceprint IDs; only mode 3. */
   voiceprintIds?: string[];
+  /** 断点续传：0=off (default), 1=sync, 2=async. Requires speakerDiarization 1/3. */
+  enableSpeakerContext?: number;
+  /** Previous session's speaker_context_id; only with enableSpeakerContext. */
+  speakerContextId?: string;
 }
 
 /**
@@ -127,6 +131,8 @@ export class SignatureParams {
   speakerNumber: number;
   speakerRoles: SpeakerRole[];
   voiceprintIds: string[];
+  enableSpeakerContext: number;
+  speakerContextId: string;
 
   constructor(opts: SignatureParamsOptions) {
     this.appId = opts.appId;
@@ -163,6 +169,8 @@ export class SignatureParams {
     this.speakerNumber = opts.speakerNumber ?? 0;
     this.speakerRoles = opts.speakerRoles ? [...opts.speakerRoles] : [];
     this.voiceprintIds = opts.voiceprintIds ? [...opts.voiceprintIds] : [];
+    this.enableSpeakerContext = opts.enableSpeakerContext ?? 0;
+    this.speakerContextId = opts.speakerContextId ?? "";
   }
 
   /** Build URL query string without signature. */
@@ -234,6 +242,12 @@ export class SignatureParams {
       m["speaker_diarization"] = String(this.speakerDiarization);
       if (this.speakerNumber !== 0) {
         m["speaker_number"] = String(this.speakerNumber);
+      }
+    }
+    if (this.enableSpeakerContext) {
+      m["enable_speaker_context"] = String(this.enableSpeakerContext);
+      if (this.speakerContextId) {
+        m["speaker_context_id"] = this.speakerContextId;
       }
     }
     // speaker_roles / voiceprintids only apply to the voiceprint role
