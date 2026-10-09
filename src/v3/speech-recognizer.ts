@@ -26,7 +26,6 @@ import {
 import { sdkReportParams } from "../sdkinfo";
 import { genUserSig } from "../usersig";
 import {
-  Context,
   SPEAKER_CONTEXT_ACK_TIMEOUT_MS,
   SPEAKER_CONTEXT_SYNC,
   SPEAKER_DIARIZATION_VOICEPRINT,
@@ -164,7 +163,6 @@ export class SpeechRecognizer {
   private voiceprintIds: string[] = [];
   private voiceId = "";
   private language = "";
-  private context: Context | null = null;
   /** Speaker context ("断点续传"): requested mode (0/1/2) and the id issued by
    * an earlier session. */
   private enableSpeakerContext = 0;
@@ -311,9 +309,6 @@ export class SpeechRecognizer {
   }
   setLanguage(lang: string): void {
     this.language = lang;
-  }
-  setContext(context: Context | null): void {
-    this.context = context;
   }
   setWriteTimeout(ms: number): void {
     if (ms <= 0) {
@@ -580,13 +575,6 @@ export class SpeechRecognizer {
     if (this.enableSpeakerContext) {
       params.enable_speaker_context = this.enableSpeakerContext;
       if (this.speakerContextId) params.speaker_context_id = this.speakerContextId;
-    }
-    if (this.context) {
-      const wire: Record<string, unknown> = {};
-      if (this.context.text) wire.text = this.context.text;
-      if (this.context.terms?.length) wire.terms = this.context.terms;
-      if (this.context.general?.length) wire.general = this.context.general;
-      if (Object.keys(wire).length) params.context = wire;
     }
     return params;
   }

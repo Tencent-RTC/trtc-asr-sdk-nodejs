@@ -20,7 +20,6 @@ import {
   SPEAKER_DIARIZATION_CLUSTER,
   newCredential,
   SpeakerRole,
-  Context,
 } from "../src/v3/wire";
 
 const CONTEXT_ID =
@@ -121,11 +120,6 @@ describe("v3 start-frame wire format", () => {
     recognizer.setVoiceprintIds(["vp-1"]);
     recognizer.setEnableSpeakerContext(SPEAKER_CONTEXT_SYNC);
     recognizer.setSpeakerContextId(CONTEXT_ID);
-    recognizer.setContext({
-      text: "bg",
-      terms: ["ASR"],
-      general: [{ key: "domain", value: "Meeting" }],
-    });
 
     const pending = recognizer.start();
     const ws = instances()[instances().length - 1];
@@ -171,11 +165,7 @@ describe("v3 start-frame wire format", () => {
     expect(params.speaker_roles).toEqual([
       { role_name: "teacher", audio_url: "https://example.com/t.wav" },
     ]);
-    expect(params.context).toEqual({
-      text: "bg",
-      terms: ["ASR"],
-      general: [{ key: "domain", value: "Meeting" }],
-    });
+    expect(params.context).toBeUndefined();
     expect(params.sdk_info.sdk_lang).toBe("nodejs");
   });
 

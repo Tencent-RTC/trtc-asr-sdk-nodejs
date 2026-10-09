@@ -53,8 +53,6 @@ export {
   CONTINUE_STATUS_RESUMED,
   CONTINUE_STATUS_DEGRADED,
   CONTINUE_STATUS_DISABLED,
-  Context,
-  ContextKV,
   SpeakerContinue,
   SpeakerRole,
   AudioURLItem,

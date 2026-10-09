@@ -71,19 +71,6 @@ export function newCredential(sdkAppId: number, secretKey: string): Credential {
   return new Credential(0, sdkAppId, secretKey);
 }
 
-/** A domain key-value pair of Context.general. */
-export interface ContextKV {
-  key: string;
-  value: string;
-}
-
-/** Recognition context, aligned with Soniox / Volcengine semantics. */
-export interface Context {
-  text?: string;
-  terms?: string[];
-  general?: ContextKV[];
-}
-
 /** Temporary voiceprint enrollment entry (speaker_diarization=3). */
 export interface SpeakerRole {
   role_name: string;

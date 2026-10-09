@@ -9,7 +9,6 @@ import { Credential, resolveHTTPEndpoint } from "../credential";
 import { ASRError, ErrorCode } from "../errors";
 import { sdkReportParams } from "../sdkinfo";
 import {
-  Context,
   SOURCE_TYPE_DATA,
   SOURCE_TYPE_URL,
   Word,
@@ -51,8 +50,6 @@ export interface TranscribeRequest {
 
   speaker_diarization?: number;
   speaker_number?: number;
-
-  context?: Context;
 }
 
 /** The flat /v3/transcribe response. */

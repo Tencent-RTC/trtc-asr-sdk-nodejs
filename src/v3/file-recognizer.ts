@@ -10,7 +10,6 @@ import { ASRError, ErrorCode } from "../errors";
 import { sdkReportParams } from "../sdkinfo";
 import {
   AudioURLItem,
-  Context,
   SOURCE_TYPE_DATA,
   SOURCE_TYPE_URL,
   SpeakerRole,
@@ -74,8 +73,6 @@ export interface CreateTranscriptionRequest {
   noise_threshold?: number;
 
   language?: string;
-
-  context?: Context;
 }
 
 /** One sentence of a describe_transcription result. */

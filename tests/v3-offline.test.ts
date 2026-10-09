@@ -14,7 +14,6 @@ import {
 } from "../src/v3/sentence-recognizer";
 import {
   AudioURLItem,
-  Context,
   SOURCE_TYPE_DATA,
   SOURCE_TYPE_URL,
   SPEAKER_DIARIZATION_CLUSTER,
@@ -85,7 +84,6 @@ describe("v3 /v3/transcribe", () => {
       filter_punc: 1,
       input_sample_rate: 8000,
       customization_id: "cust-1",
-      context: { text: "bg", terms: ["ASR"] },
     });
 
     expect(lastURL(fetchMock)).toMatch(/\/v3\/transcribe$/);
@@ -112,7 +110,7 @@ describe("v3 /v3/transcribe", () => {
     expect(params.input_sample_rate).toBe(8000);
     expect(params.customization_id).toBe("cust-1");
     expect(params.sdk_info.sdk_lang).toBe("nodejs");
-    expect(params.context).toEqual({ text: "bg", terms: ["ASR"] });
+    expect(params.context).toBeUndefined();
 
     expect(resp.result).toBe("你好世界");
     expect(resp.audio_duration).toBe(1500);
