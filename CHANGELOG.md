@@ -7,6 +7,16 @@
 
 ## [未发布]
 
+### 修复
+
+- 支持从 GitHub 直接安装：新增 `prepare` 脚本，`npm install github:...` 时自动编译 `dist/`。
+  此前 `dist/` 不入库、只有 `prepublishOnly` 编译，git 安装得到的是空包，`require('trtc-asr')` 失败。
+
+### 文档
+
+- 安装说明改为从 GitHub tag 安装；包尚未发布到 npm，原 `npm install trtc-asr` 无法使用。
+- 参数表移除暂未对外开放的请求字段（`customization_id`、`keyword_lib_id_list`、`replace_text_id`、`sentence_max_length`、`extra`）。
+
 ## [2.0.0] - 2026-10-09
 
 ### 变更

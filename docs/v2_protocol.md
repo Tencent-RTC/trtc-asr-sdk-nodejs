@@ -12,9 +12,7 @@
 
 ## 安装
 
-```bash
-npm install trtc-asr
-```
+从 GitHub 按 tag 安装，写法见 [README 安装](../README.md#安装)。
 
 **要求**：Node.js >= 16
 
