@@ -22,7 +22,7 @@ import * as os from "os";
  * require("../package.json") resolves to the consumer's own manifest — or
  * nothing at all — once installed.
  */
-export const SDK_VERSION = "2.0.0";
+export const SDK_VERSION = "2.0.1";
 
 /** Identifies the SDK implementation language. */
 export const SDK_LANGUAGE = "nodejs";
